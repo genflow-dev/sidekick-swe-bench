@@ -14,9 +14,10 @@ from aider.models import Model
 
 from dump import dump
 from tests import run_tests
-from utils import (  # get_lite_dataset,
+from utils import (
+    get_lite_dataset,
     get_devin_instance_ids,
-    get_full_dataset,
+    # get_full_dataset,
     get_plausible,
     load_predictions,
     pick_winner,
@@ -77,7 +78,7 @@ def checkout_repo_url_commit(url, commit, dname):
     repo_name += ".git"
 
     # dump(repo_name)
-    REPOS_DNAME.mkdir(exist_ok=True)
+    REPOS_DNAME.mkdir(exist_ok=True, parents=True)
     bare_repo = REPOS_DNAME / repo_name
 
     if not bare_repo.exists():
@@ -147,54 +148,6 @@ def run_pre_existing_tests(entry, git_dname):
     return output
 
 
-def get_coder(model, git_dname, chat_history_file, test_cmd, temperature, oracle_files=None):
-    """
-    Get an instance of aider to work with the given LLM `model` at `temperature`
-    on the code in `git_dname`. Will store the markdown chat logs in
-    the `chat_history_file`. Tells aider it can use the `test_cmd` to
-    run tests after the LLM edits files.
-
-    If `oracle_files` are provided, they are added to the aider chat automatically.
-    """
-    if oracle_files and git_dname:
-        oracle_files = [Path(git_dname) / fname for fname in oracle_files]
-
-    model = Model(model)
-    io = InputOutput(
-        yes=True,  # Say yes to every suggestion aider makes
-        chat_history_file=chat_history_file,  # Log the chat here
-        input_history_file="/dev/null",  # Don't log the "user input"
-    )
-
-    dump(git_dname)
-
-    coder = Coder.create(
-        main_model=model,
-        io=io,
-        git_dname=git_dname,
-        map_tokens=2048,  # Use 2k tokens for the repo map
-        stream=False,
-        auto_commits=False,  # Don't bother git committing changes
-        fnames=oracle_files,
-        auto_test=True,  # Automatically run the test_cmd after making changes
-        test_cmd=test_cmd,
-        # verbose=True,
-    )
-    coder.temperature = temperature
-
-    # Take at most 4 steps before giving up.
-    # Usually set to 5, but this reduces API costs.
-    coder.max_reflections = 4
-
-    # Add announcement lines to the markdown chat log
-    coder.show_announcements()
-
-    # messages = coder.format_messages()
-    # utils.show_messages(messages)
-
-    return coder
-
-
 def process_one_instance(entry, num_tries, models, temperature, model_name_or_path, out_dname):
     """Process one `entry` from SWE Bench using the LLM `models` at the
     given `temperature`.  Set `model_name_or_path` in the result json.
@@ -237,38 +190,24 @@ def process_one_instance(entry, num_tries, models, temperature, model_name_or_pa
             # Prepare the test command which will run the pre-existing tests
             test_cmd = lambda: run_pre_existing_tests(entry, git_tempdir)  # noqa: E731
 
-            # Get an instance of aider
-            coder = get_coder(
-                model,
-                git_tempdir,
-                chat_history_file,
-                test_cmd,
-                temperature,
-                oracle_files,
-            )
-
             dump(instance_id)
             dump(gold_files)
 
-            # Tell aider to work on the `problem_statement`.
-            # This is the same as if you pasted it into a fresh chat with aider
-            # launched in the repo.
+            # Tell Sidekick to work on the `problem_statement`.
+            # This is the same as if you pasted it into a new task within the Sidekick app.
             try:
-                coder.run(problem_statement)
+                # TODO
+                1 / 0
             except Exception as coder_err:
                 # swallow any exceptions during benchmarking
                 dump(coder_err)
                 continue
 
-            # Take note of which files aider added to the chat for stats later
-            added_files = coder.get_inchat_relative_files()
-
             dump(instance_id)
             dump(gold_files)
-            dump(added_files)
 
-            # Keep track of API costs
-            cost += coder.total_cost
+            # TODO: Keep track of API costs
+            # cost += coder.total_cost
 
             # Get the diff between the current state and the original commit
             model_patch = diff_versus_commit(git_tempdir, base_commit)
@@ -362,15 +301,16 @@ def main():
     temperature = 0
 
     # Load the SWE Bench dataset
-    dataset = get_full_dataset()
-    # dataset = get_lite_dataset()
+    # dataset = get_full_dataset()
+    dataset = get_lite_dataset()
 
-    just_devin_570 = True
-
-    if just_devin_570:
-        # Filter it to the Devin 570
-        devin_insts = get_devin_instance_ids()
-        dataset = dict((inst, entry) for inst, entry in dataset.items() if inst in devin_insts)
+    just_devin_570 = False
+    # Filter it to the Devin 570 when using the full dataset
+    # just_devin_570 = True
+    # if just_devin_570:
+    #     # Filter it to the Devin 570
+    #     devin_insts = get_devin_instance_ids()
+    #     dataset = dict((inst, entry) for inst, entry in dataset.items() if inst in devin_insts)
 
     # How many threads to use for attempting instances in parallel
     threads = 1
@@ -401,7 +341,7 @@ def process_instances(
                    don't continue looking.
     """
     models_slug = "--".join(model.replace("/", "-") for model in models)
-    model_name_or_path = "aider--" + models_slug
+    model_name_or_path = "sidekick--" + models_slug
     models_slug = prefix + "--" + models_slug
 
     dump(models)
@@ -409,7 +349,7 @@ def process_instances(
 
     out_dname = PREDS_DNAME / models_slug
     if not out_dname.exists():
-        out_dname.mkdir()
+        out_dname.mkdir(parents=True)
 
     dump(out_dname)
 
@@ -446,7 +386,7 @@ def process_instances(
     input()
 
     chat_history_dname = CHAT_LOGS_DNAME / models_slug
-    chat_history_dname.mkdir(exist_ok=True)
+    chat_history_dname.mkdir(exist_ok=True, parents=True)
 
     threads = 1
     if threads > 1:
