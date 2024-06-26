@@ -8,15 +8,11 @@ import tempfile
 from pathlib import Path
 
 import lox
-from aider.coders import Coder
-from aider.io import InputOutput
-from aider.models import Model
 
 from dump import dump
-from tests import run_tests
 from utils import (
     get_lite_dataset,
-    get_devin_instance_ids,
+    # get_devin_instance_ids,
     # get_full_dataset,
     get_plausible,
     load_predictions,
@@ -98,7 +94,7 @@ def checkout_repo_url_commit(url, commit, dname):
     subprocess.run(cmd.split(), check=True)
 
     # IGNORE = '*test*\n'
-    # ignore = Path(repo_dname) / '.aiderignore'
+    # ignore = Path(repo_dname) / '.sidekickignore'
     # ignore.write_text(IGNORE)
 
     return repo_dname
@@ -112,40 +108,6 @@ def show_problems(dataset):
         problem = entry["problem_statement"].splitlines()[0]
         print(f"{inst}: {problem}")
 
-
-def run_pre_existing_tests(entry, git_dname):
-    """Given the current contents of the `git_dname`, run the tests that
-    were present in the entry's `repo` at the time of the
-    `base_commit` or which have been added into the repo since.  This
-    checks if the code in the `git_dname` has broken pre-existing
-    tests or is failing any newly added tests.
-
-    It does NOT attempt to run the tests in the `test_patch` which
-    are used to evaluate whether the `model_patch` has resolved the
-    `problem_statement`.
-
-    Returns None if all the tests passed. Returns the text of the
-    test run output if any failed.
-    """
-
-    model_patch = diff_versus_commit(git_dname, entry["base_commit"])
-    passed, output = run_tests(
-        entry,
-        model_patch=model_patch,
-        use_test_patch=False,
-    )
-    # We were UNABLE to run tests
-    if passed is None:
-        return
-
-    if passed:
-        return
-
-    # Just keep the output after the (no-op) test patch applied,
-    # which is the actual output from the tests that were run.
-    output = output.split(">>>>> Applied Patch (test)")[-1]
-
-    return output
 
 
 def process_one_instance(entry, num_tries, models, temperature, model_name_or_path, out_dname):
@@ -162,18 +124,7 @@ def process_one_instance(entry, num_tries, models, temperature, model_name_or_pa
     print("=" * 60)
     problem_statement = entry["problem_statement"]
     print(problem_statement)
-
-    ###
-    # DO NOT assist aider by telling it which files need to be modified!
-    oracle = False
     gold_files = files_in_patch(entry["patch"])
-    if oracle:
-        oracle_files = gold_files
-    else:
-        oracle_files = None
-    ###
-
-    chat_history_file = out_dname / (instance_id + ".md")
 
     results = []
     cost = 0
@@ -187,11 +138,61 @@ def process_one_instance(entry, num_tries, models, temperature, model_name_or_pa
             git_tempdir = checkout_repo(entry)
             dump(git_tempdir)
 
-            # Prepare the test command which will run the pre-existing tests
-            test_cmd = lambda: run_pre_existing_tests(entry, git_tempdir)  # noqa: E731
-
             dump(instance_id)
             dump(gold_files)
+
+            # TODO configure sidekick via genflow.coding.toml file + .genflowignore file + setup run_dev_tests.sh script
+            # then commit that stuff too
+            # NOTE: Test script contains :
+            #
+            #     SWEBENCH_DOCKER_FORK_DIR=${current_dir}/SWE-bench-docker python ${current_dir}/tests.py run_dev_tests ${entry.instance_id} ${git_tempdir}
+            #     RETURN=$?
+            #     rm ${git_tempdir}/princeton-nlp--SWE-bench*.json 
+            #     exit $RETURN
+            # 
+            # .genflowignore contains:
+            #
+            #     run_dev_tests.sh
+            #     genflow.coding.toml
+            #
+            # genflow.coding.toml contains:
+            #
+            #     [[test_commands]]
+            #     command = "/usr/bin/env sh run_dev_tests.sh"
+
+            # Create run_dev_tests.sh file
+            current_dir = Path(__file__).parent
+            run_dev_tests_sh = f"""
+            SWEBENCH_DOCKER_FORK_DIR={current_dir}/SWE-bench-docker python {current_dir}/tests.py run_dev_tests {entry.instance_id} {git_tempdir}
+            RETURN=$?
+            rm {git_tempdir}/princeton-nlp--SWE-bench*.json 
+            exit $RETURN
+            """
+            run_dev_tests_sh_path = Path(git_tempdir) / "run_dev_tests.sh"
+            run_dev_tests_sh_path.write_text(run_dev_tests_sh)
+
+            # Configure Sidekick via genflow.coding.toml file
+            sidekick_config = """
+            [[test_commands]]
+            command = "/usr/bin/env sh run_dev_tests.sh"
+            """
+            genflow_coding_toml_path = Path(git_tempdir) / "genflow.coding.toml"
+            genflow_coding_toml_path.write_text(sidekick_config)
+
+            # Create .genflowignore file that just ignores the above two files
+            genflowignore = """
+            run_dev_tests.sh
+            genflow.coding.toml
+            """
+
+            genflowignore_path = Path(git_tempdir) / ".genflowignore"
+            genflowignore_path.write_text(genflowignore)
+
+            # Commit the genflow.coding.toml and .genflowignore files
+            commit_cmd = f"git -C {git_tempdir} add genflow.coding.toml .genflowignore run_dev_tests.sh"
+            subprocess.run(commit_cmd.split(), check=True)
+            commit_cmd = f"git -C {git_tempdir} commit -m 'Configure Sidekick'"
+            subprocess.run(commit_cmd.split(), check=True)
 
             # Tell Sidekick to work on the `problem_statement`.
             # This is the same as if you pasted it into a new task within the Sidekick app.
@@ -220,15 +221,15 @@ def process_one_instance(entry, num_tries, models, temperature, model_name_or_pa
                 model_name_or_path=model_name_or_path,
                 model_patch=model_patch,
                 # For computing stats
-                model=model,
-                temperature=temperature,
-                cost=coder.total_cost,
-                added_files=added_files,
-                gold_files=gold_files,
-                edited_files=files_in_patch(model_patch),
-                edit_outcome=coder.edit_outcome,
-                lint_outcome=coder.lint_outcome,
-                test_outcome=coder.test_outcome,
+                #model=model,
+                #temperature=temperature,
+                #cost=coder.total_cost,
+                #added_files=added_files,
+                #gold_files=gold_files,
+                #edited_files=files_in_patch(model_patch),
+                #edit_outcome=coder.edit_outcome,
+                #lint_outcome=coder.lint_outcome,
+                #test_outcome=coder.test_outcome,
             )
             result["try"] = attempt  # `try` is a python keyword
             results.append(result)
@@ -236,7 +237,7 @@ def process_one_instance(entry, num_tries, models, temperature, model_name_or_pa
             dump(result)
 
             # Did we get a successful edit, lint and test? If so, we found a plausible solution!
-            if model_patch and coder.edit_outcome and coder.lint_outcome and coder.test_outcome:
+            if model_patch: # and coder.edit_outcome and coder.lint_outcome and coder.test_outcome:
                 winner = result
                 break
 

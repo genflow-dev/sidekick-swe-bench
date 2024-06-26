@@ -3,16 +3,19 @@
 import asyncio
 import json
 import random
+import subprocess
 import sys
 import tempfile
 from collections import defaultdict
 from pathlib import Path
 
 from dump import dump
-from swebench_docker.constants import MAP_REPO_TO_TEST_FRAMEWORK, MAP_VERSION_TO_INSTALL
+from harness import diff_versus_commit
+from swebench_docker.constants import MAP_VERSION_TO_INSTALL
 from swebench_docker.run_docker import run_docker_evaluation
 from swebench_docker.utils import get_test_directives
-from utils import get_dataset, get_devin_instance_ids, load_predictions  # noqa: F401
+import re
+from utils import get_dataset, get_devin_instance_ids, get_lite_dataset, load_predictions  # noqa: F401
 
 
 # clipped from `run_docker_evaluation()`
@@ -73,7 +76,31 @@ def remove_patches_to_tests(model_patch):
     return "".join(filtered_lines)
 
 
-def run_tests(entry, model_patch=None, use_test_patch=False, model_name_or_path="none"):
+TEST_PYTEST = "pytest --no-header -rfE --disable-warnings --tb=no -p no:cacheprovider"
+TEST_PYTEST_SKIP_NO_HEADER = "pytest -rfE --disable-warnings --tb=no -p no:cacheprovider"
+CUSTOM_MAP_REPO_TO_TEST_FRAMEWORK = {
+    "astropy/astropy": TEST_PYTEST,
+    "django/django": "./tests/runtests.py --verbosity 2",
+    "marshmallow-code/marshmallow": TEST_PYTEST,
+    "matplotlib/matplotlib": TEST_PYTEST,
+    "mwaskom/seaborn": "pytest --no-header -rfE --disable-warnings",
+    "pallets/flask": TEST_PYTEST,
+    "psf/requests": TEST_PYTEST,
+    "pvlib/pvlib-python": TEST_PYTEST,
+    "pydata/xarray": TEST_PYTEST,
+    "pydicom/pydicom": TEST_PYTEST_SKIP_NO_HEADER,
+    "pylint-dev/astroid": TEST_PYTEST,
+    "pylint-dev/pylint": TEST_PYTEST,
+    "pytest-dev/pytest": "pytest -rfE --disable-warnings",
+    "pyvista/pyvista": TEST_PYTEST,
+    "scikit-learn/scikit-learn": TEST_PYTEST_SKIP_NO_HEADER,
+    "sphinx-doc/sphinx": "tox -epy39 -v --",
+    "sqlfluff/sqlfluff": TEST_PYTEST,
+    "swe-bench/humaneval": "python",
+    "sympy/sympy": "bin/test -C --verbose",
+}
+
+def run_tests(entry, model_patch=None, use_test_patch=False, model_name_or_path="none", test_directives=None):
     """
     Run tests for the SWE Bench `entry`, optionally applying a `model_patch` first.
 
@@ -86,10 +113,13 @@ def run_tests(entry, model_patch=None, use_test_patch=False, model_name_or_path=
     the log_dir for the tests is a temp dir which is discarded.
     """
     instance_id = entry["instance_id"]
+    # print(f"Running tests for {instance_id}...")
 
-    test_type = MAP_REPO_TO_TEST_FRAMEWORK[entry["repo"]]
-    test_directives = get_test_directives(entry)
+    test_type = CUSTOM_MAP_REPO_TO_TEST_FRAMEWORK[entry["repo"]]
+    if test_directives is None:
+        test_directives = get_test_directives(entry)
     test_cmd = f"{test_type} {' '.join(test_directives)}"
+    # print(f"Test command: {test_cmd}")
 
     # Use a no-op patch if no model_patch is provided
     if not model_patch:
@@ -125,7 +155,7 @@ def run_tests(entry, model_patch=None, use_test_patch=False, model_name_or_path=
 
     namespace = "aorwall"
     log_dir = tempfile.TemporaryDirectory(dir="/tmp").name
-    timeout = 60
+    timeout = 200
     log_suffix = ""
 
     asyncio.run(run_docker_evaluation(entry_instance, namespace, log_dir, timeout, log_suffix))
@@ -137,14 +167,121 @@ def run_tests(entry, model_patch=None, use_test_patch=False, model_name_or_path=
     log_text = log_fname.read_text()
     log_lines = log_text.splitlines()
     log_lines = [line for line in log_lines if line.startswith(">>>>")]
-    print("\n".join(log_lines))
+    #print("\n".join(log_lines))
 
     passed = ">>>>> All Tests Passed" in log_text
 
     return passed, log_text
 
+def run_dev_tests(entry, git_dname):
+    # during development, we don't have a test patch, so we just run existing
+    # tests or tests added in the model patch
+    return diff_and_run_tests(entry, git_dname, use_test_patch=False)
 
-def main_check_docker_images():
+def run_eval_tests(entry, git_dname):
+    # like run_dev_tests, but now we have the test patch used for evaluation.
+    # also, we skip evaluating any additional tests added in the model patch,
+    # in case of git patch apply conflicts and for a cleaner evaluation.
+    return diff_and_run_tests(entry, git_dname, use_test_patch=True)
+
+def diff_and_run_tests(entry, git_dname, use_test_patch=False):
+    """Given the current contents of the `git_dname`, run the tests that were
+    present in the entry's `repo` at the time of the `base_commit` and are
+    specified as required to pass (i.e. PASS_TO_PASS).
+    
+    If use_test_patch is True, we also evaluate new tests which have been added
+    into the repo since during development.
+
+    If use_test_patch is False, we do NOT attempt to run the tests in the
+    `test_patch`, which are used to evaluate whether the `model_patch` has
+    resolved the `problem_statement` (i.e. FAIL_TO_PASS).
+
+    Returns tuple of whether tests passed and output.
+    """
+
+    # get the next commit after the base_commit as the basis for the diff,
+    # because the test harness makes an extra git commit before sidekick starts.
+    command = f"""git rev-list --topo-order {entry["base_commit"]}.."$*" | tail -1"""
+    next_commit = subprocess.run(command, shell=True, capture_output=True, text=True).stdout
+    model_patch = diff_versus_commit(git_dname, next_commit)
+    # print("Model Patch:")
+    # print(model_patch)
+
+    existing_test_directives = json.loads(entry["PASS_TO_PASS"])
+    if use_test_patch:
+        additional_test_directives = json.loads(entry["FAIL_TO_PASS"])
+    else: 
+        newly_added_test_directives = extract_added_test_directives_from_patch(entry, model_patch)
+        additional_test_directives = newly_added_test_directives
+
+        # the following test directives are actually not present in the repo but in
+        # the test patch. this appears to be an error in the swe-bench dataset. we
+        # need to filter them out as trying to run non-existent tests will cause the
+        # test runner to fail.
+        not_actually_existing_test_directives = extract_added_test_directives_from_patch(entry, entry["test_patch"])
+        existing_test_directives = [d for d in existing_test_directives if d not in not_actually_existing_test_directives]
+
+    # print(f"Existing Test directives: {existing_test_directives}, Newly Added Test directives: {newly_added_test_directives}")
+    test_directives = existing_test_directives + additional_test_directives
+
+    passed, output = run_tests(
+        entry,
+        model_patch=model_patch,
+        use_test_patch=use_test_patch,
+        test_directives=test_directives,
+    )
+
+    # We were UNABLE to run tests
+    if passed is None:
+        return passed, output
+
+    # Just keep the actual output from the tests that were run, throwing away the harness output
+    if "Std. Output:" not in output:
+        raise ValueError("Output does not contain the expected 'Std. Output:' string, did the SWE-bench-docker test runner change?")
+    output = output.split("Std. Output:")[-1]
+
+    return passed, output
+
+def extract_added_test_directives_from_patch(entry, git_patch):
+    """Given a `git_patch`, extract the test directives for any new tests
+    that have been added to the repo since the `base_commit`.
+    """
+    # extract each diff hunk
+    hunks = git_patch.split("\ndiff --git")
+
+    # for each hunk, extract the file path and the tests added
+    test_directives = []
+    for hunk in hunks:
+        if len(hunk) == 0:
+            continue
+        lines = hunk.split("\n")
+        file_path = re.search(r' a/(.*?) b/', lines[0]).group(1)
+        class_name = None
+        for line in lines:
+            # NOTE: a class name may be in the hunk header, or in the diff itself for a newly added class
+            if re.search(r'^(@@.*@@|\+).*class\s*(\w+)', line):
+                class_name = re.search(r'class\s*(\w+)', line).group(1).strip()
+
+            # filter to lines that start with '+' then any whitespace, then 'def test'
+            if re.search(r'^\+\s*def\s+test', line):
+                test_name = re.search(r'^\+\s*def\s+(test(\w*))\(', line).group(1).strip()
+                if re.search(r"pytest|tox", CUSTOM_MAP_REPO_TO_TEST_FRAMEWORK[entry["repo"]]):
+                    if class_name is not None:
+                        test_directive = f"{file_path}::{class_name}::{test_name}"
+                    else:
+                        test_directive = f"{file_path}::{test_name}"
+                else:
+                    # FIXME make this work for django and all other non-pytest/non-tox frameworks
+                    test_directive = test_name
+                test_directives.append(test_directive)
+
+    #print("Newly Added Test directives:")
+    #print(test_directives)
+
+    return test_directives
+
+
+def check_docker_images():
     dataset = get_dataset()
 
     # instances = get_devin_instance_ids()
@@ -217,10 +354,10 @@ def update_cache(cache_fname, instances, good_dockers, bad_dockers):
     dump(len(bad_dockers))
 
 
-def main_preds():
+def preds():
     dataset = get_dataset()
 
-    dnames = sys.argv[1:]
+    dnames = sys.argv[2:]
     preds = load_predictions(dnames)
 
     num = 0
@@ -241,7 +378,47 @@ def main_preds():
         dump(num_passed, num)
 
 
+def main(argv):
+    if len(argv) < 2:
+        print("Usage: python tests.py [command]")
+        return 1
+
+    command = argv[1]
+    if command == "check_docker_images":
+        status = check_docker_images()
+
+    elif command == "run_dev_tests" or command == "run_eval_tests":
+        instance_id = sys.argv[2]
+        repo_dir = sys.argv[3]
+
+        dataset = get_lite_dataset()
+        entry = dataset[instance_id]
+        #print(entry)
+        if command == "run_dev_tests":
+            passed, output = run_dev_tests(entry, repo_dir)
+        elif command == "run_eval_tests":
+            passed, output = run_eval_tests(entry, repo_dir)
+        else:
+            raise ValueError(f"Invalid command: {command}")
+        print(output)
+        print(f"Tests Passed: {passed}")
+
+        if passed:
+            status = 0
+        elif passed is None:
+            status = 2
+        elif not passed:
+            status = 1
+
+    elif command == "preds":
+        status = preds()
+
+    else:
+        print("Invalid command")
+        return 1
+
+    return status
+
 if __name__ == "__main__":
-    status = main_check_docker_images()
-    # status = main_preds()
+    status = main(sys.argv)
     sys.exit(status)

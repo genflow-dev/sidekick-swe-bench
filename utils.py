@@ -43,12 +43,9 @@ def get_dataset(dataset, fname):
     """
 
     fname = Path(fname)
-    if fname.exists():
-        dataset = json.loads(fname.read_text())
-    else:
-        dataset = load_dataset(dataset)
-        dataset = dataset["test"]
-        dump_dataset(dataset, fname)
+    dataset = load_dataset(dataset)
+    dataset = dataset["test"]
+    dump_dataset(dataset, fname)
 
     res = dict()
     for entry in dataset:
