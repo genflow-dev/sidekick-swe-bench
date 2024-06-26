@@ -108,7 +108,59 @@ def show_problems(dataset):
         problem = entry["problem_statement"].splitlines()[0]
         print(f"{inst}: {problem}")
 
+def configure_sidekick(git_tempdir, entry):
+    # configure sidekick via genflow.coding.toml file + .genflowignore file + setup run_dev_tests.sh script
+    # then commit that stuff too
+    #
+    # Test script contains :
+    #
+    #     SWEBENCH_DOCKER_FORK_DIR=${current_dir}/SWE-bench-docker python ${current_dir}/tests.py run_dev_tests ${entry.instance_id} ${git_tempdir}
+    #     RETURN=$?
+    #     rm ${git_tempdir}/princeton-nlp--SWE-bench*.json 
+    #     exit $RETURN
+    # 
+    # .genflowignore contains:
+    #
+    #     run_dev_tests.sh
+    #     genflow.coding.toml
+    #
+    # genflow.coding.toml contains:
+    #
+    #     [[test_commands]]
+    #     command = "/usr/bin/env sh run_dev_tests.sh"
 
+    # Create run_dev_tests.sh file
+    current_dir = Path(__file__).parent
+    run_dev_tests_sh = f"""
+    SWEBENCH_DOCKER_FORK_DIR={current_dir}/SWE-bench-docker python {current_dir}/tests.py run_dev_tests {entry.instance_id} {git_tempdir}
+    RETURN=$?
+    rm {git_tempdir}/princeton-nlp--SWE-bench*.json 
+    exit $RETURN
+    """
+    run_dev_tests_sh_path = Path(git_tempdir) / "run_dev_tests.sh"
+    run_dev_tests_sh_path.write_text(run_dev_tests_sh)
+
+    # Configure Sidekick via genflow.coding.toml file
+    sidekick_config = """
+    [[test_commands]]
+    command = "/usr/bin/env sh run_dev_tests.sh"
+    """
+    genflow_coding_toml_path = Path(git_tempdir) / "genflow.coding.toml"
+    genflow_coding_toml_path.write_text(sidekick_config)
+
+    # Create .genflowignore file that just ignores the above two files
+    genflowignore = """
+    run_dev_tests.sh
+    genflow.coding.toml
+    """
+    genflowignore_path = Path(git_tempdir) / ".genflowignore"
+    genflowignore_path.write_text(genflowignore)
+
+    # Commit the genflow.coding.toml, .genflowignore and run_dev_tests.sh files
+    commit_cmd = f"git -C {git_tempdir} add genflow.coding.toml .genflowignore run_dev_tests.sh"
+    subprocess.run(commit_cmd.split(), check=True)
+    commit_cmd = f"git -C {git_tempdir} commit -m 'Configure Sidekick'"
+    subprocess.run(commit_cmd.split(), check=True)
 
 def process_one_instance(entry, num_tries, models, temperature, model_name_or_path, out_dname):
     """Process one `entry` from SWE Bench using the LLM `models` at the
@@ -140,59 +192,7 @@ def process_one_instance(entry, num_tries, models, temperature, model_name_or_pa
 
             dump(instance_id)
             dump(gold_files)
-
-            # TODO configure sidekick via genflow.coding.toml file + .genflowignore file + setup run_dev_tests.sh script
-            # then commit that stuff too
-            # NOTE: Test script contains :
-            #
-            #     SWEBENCH_DOCKER_FORK_DIR=${current_dir}/SWE-bench-docker python ${current_dir}/tests.py run_dev_tests ${entry.instance_id} ${git_tempdir}
-            #     RETURN=$?
-            #     rm ${git_tempdir}/princeton-nlp--SWE-bench*.json 
-            #     exit $RETURN
-            # 
-            # .genflowignore contains:
-            #
-            #     run_dev_tests.sh
-            #     genflow.coding.toml
-            #
-            # genflow.coding.toml contains:
-            #
-            #     [[test_commands]]
-            #     command = "/usr/bin/env sh run_dev_tests.sh"
-
-            # Create run_dev_tests.sh file
-            current_dir = Path(__file__).parent
-            run_dev_tests_sh = f"""
-            SWEBENCH_DOCKER_FORK_DIR={current_dir}/SWE-bench-docker python {current_dir}/tests.py run_dev_tests {entry.instance_id} {git_tempdir}
-            RETURN=$?
-            rm {git_tempdir}/princeton-nlp--SWE-bench*.json 
-            exit $RETURN
-            """
-            run_dev_tests_sh_path = Path(git_tempdir) / "run_dev_tests.sh"
-            run_dev_tests_sh_path.write_text(run_dev_tests_sh)
-
-            # Configure Sidekick via genflow.coding.toml file
-            sidekick_config = """
-            [[test_commands]]
-            command = "/usr/bin/env sh run_dev_tests.sh"
-            """
-            genflow_coding_toml_path = Path(git_tempdir) / "genflow.coding.toml"
-            genflow_coding_toml_path.write_text(sidekick_config)
-
-            # Create .genflowignore file that just ignores the above two files
-            genflowignore = """
-            run_dev_tests.sh
-            genflow.coding.toml
-            """
-
-            genflowignore_path = Path(git_tempdir) / ".genflowignore"
-            genflowignore_path.write_text(genflowignore)
-
-            # Commit the genflow.coding.toml and .genflowignore files
-            commit_cmd = f"git -C {git_tempdir} add genflow.coding.toml .genflowignore run_dev_tests.sh"
-            subprocess.run(commit_cmd.split(), check=True)
-            commit_cmd = f"git -C {git_tempdir} commit -m 'Configure Sidekick'"
-            subprocess.run(commit_cmd.split(), check=True)
+            configure_sidekick(git_tempdir, entry)
 
             # Tell Sidekick to work on the `problem_statement`.
             # This is the same as if you pasted it into a new task within the Sidekick app.
