@@ -2,7 +2,7 @@
 
 ## Installation
 
-```
+```sh
 # Clone this repo
 git clone https://github.com/genflow-dev/sidekick-swe-bench
 
@@ -10,8 +10,8 @@ git clone https://github.com/genflow-dev/sidekick-swe-bench
 cd sidekick-swe-bench
 git clone https://github.com/aorwall/SWE-bench-docker
 
-# Install pip requirements
-pip install -r requirements.txt
+# Install python packages
+pdm install
 ```
 
 See the
@@ -29,5 +29,11 @@ The workflow for working with SWE Bench in general is 2 steps:
 This repo is for running and evaluating Sidekick on SWE Bench. As described in the README, it consists of 2 scripts:
 
 1. The `harness.py` script will run Sidekick on all the problems and produce predictions. It does not do any *acceptance* testing. It does run any pre-existing tests that were part of the problem's repo, but never runs any acceptance tests. This script produces a bunch of predictions as individual json files in `predictions/<DIRNAME>/<instance_id>.json`.
+
+Run it like so:
+
+```sh
+pdm run harness.py 
+```
 
 2. The `report.py` script consumes all those predictions and turns them into `predictions/<DIRNAME>/all_preds.jsonl`. It then feeds that jsonl file through the SWE Bench evaluation and reporting scripts to produce `logs/<DIRNAME>/<instance_id>...eval.log` files as well as a summary report in `predictions/<DIRNAME>/results.json`.
