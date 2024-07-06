@@ -116,10 +116,10 @@ def configure_sidekick(git_tempdir, entry):
     #
     # Test script contains :
     #
-    #     cd ${current_dir} # for pdm to work with the existing virtualenv
-    #     SWEBENCH_DOCKER_FORK_DIR=${current_dir}/SWE-bench-docker pdm run ${current_dir}/tests.py run_dev_tests ${entry["instance_id"]} ${git_tempdir}
+    #     cd {current_dir} # for pdm to work with the existing virtualenv
+    #     SWEBENCH_DOCKER_FORK_DIR={current_dir}/SWE-bench-docker pdm run {current_dir}/tests.py run_dev_tests {entry["instance_id"]} {git_tempdir}
     #     RETURN=$?
-    #     rm ${git_tempdir}/princeton-nlp--SWE-bench*.json 
+    #     rm {git_tempdir}/princeton-nlp--SWE-bench*.json 
     #     exit $RETURN
     # 
     # .genflowignore contains:
@@ -140,7 +140,7 @@ def configure_sidekick(git_tempdir, entry):
     # Create run_dev_tests.sh file
     current_dir = Path(__file__).parent
     run_dev_tests_sh = f"""
-cd ${current_dir} # for pdm to work with the existing virtualenv
+cd {current_dir} # for pdm to work with the existing virtualenv
 SWEBENCH_DOCKER_FORK_DIR={current_dir}/SWE-bench-docker pdm run {current_dir}/tests.py run_dev_tests {entry["instance_id"]} {git_tempdir}
 RETURN=$?
 rm {git_tempdir}/princeton-nlp--SWE-bench*.json 
@@ -233,7 +233,7 @@ def process_one_instance(entry, num_tries, models, temperature, model_name_or_pa
                     workspace.update_task(task.id, TaskRequest(
                         description=task.description,
                         flow_type=task.flow_type,
-                        agent_type=task.agent_type,
+                        agent_type="none",
                         status="failed",
                     ))
 
@@ -251,7 +251,7 @@ project/language/framework.
 
 The bug/issue report follows:
 
-${problem_statement}""",
+{problem_statement}""",
                 flow_type=FlowType.PLANNED_DEV,
             ))
 
