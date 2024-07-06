@@ -19,6 +19,7 @@ import re
 from utils import get_dataset, get_devin_instance_ids, get_lite_dataset, load_predictions  # noqa: F401
 import tree_sitter_python as tspython
 from tree_sitter import Language, Parser
+import json
 
 PY_LANGUAGE = Language(tspython.language())
 
@@ -273,7 +274,6 @@ def extract_added_test_directives_from_patch(entry, git_patch, git_dname):
     print(test_directives)
     exit(1)
 
-
 def extract_file_rows_from_patch(git_patch):
     file_rows = {}
 
@@ -283,6 +283,10 @@ def extract_file_rows_from_patch(git_patch):
 
     current_file = None
     current_line = 0
+    last_added_line = {}
+    last_removed_line = {}
+    last_added_line_number = {}
+    last_removed_line_number = {}
 
     # Process each line of the git diff
     for line in git_patch.split('\n'):
@@ -300,18 +304,22 @@ def extract_file_rows_from_patch(git_patch):
             continue
 
         # Process added or removed lines
-        print(current_file, current_line, line)
         if line.startswith('+') and not line.startswith('+++'):
             file_rows[current_file].append(current_line)
+            last_added_line[current_file] = line[1:]
+            last_added_line_number[current_file] = current_line
             current_line += 1
         elif line.startswith('-') and not line.startswith('---'):
             file_rows[current_file].append(current_line)
+            last_removed_line[current_file] = line[1:]
+            last_removed_line_number[current_file] = current_line
         elif line.startswith(' '):
             current_line += 1
 
-    # Remove duplicates and sort the line numbers for each file
-    for file, rows in file_rows.items():
-        file_rows[file] = sorted(set(rows))
+    # Remove newline-only changes at the end of files
+    for file in file_rows:
+        if file in last_added_line and file in last_removed_line and last_added_line[file] == last_removed_line[file] and last_removed_line_number[file] == last_added_line_number[file]:
+            file_rows[file] = file_rows[file][:-2]
 
     return file_rows
 
