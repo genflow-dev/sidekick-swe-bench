@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 import random
 import subprocess
 import sys
@@ -201,11 +202,18 @@ def diff_and_run_tests(entry, git_dname, use_test_patch=False):
 
     # get the next commit after the base_commit as the basis for the diff,
     # because the test harness makes an extra git commit before sidekick starts.
-    command = f"""git rev-list --topo-order {entry["base_commit"]}.."$*" | tail -1"""
+    command = f"""git -C {git_dname} rev-list --topo-order {entry["base_commit"]}.."$*" | tail -1"""
     next_commit = subprocess.run(command, shell=True, capture_output=True, text=True).stdout
     model_patch = diff_versus_commit(git_dname, next_commit)
-    # print("Model Patch:")
-    # print(model_patch)
+
+    # switch working directory to this directory
+    current_dir = Path(__file__).parent
+    os.chdir(current_dir)
+
+    #print(f"Base commit: {entry['base_commit']}")
+    #print(f"Next commit after base_commit: {next_commit}")
+    #print("Model Patch:")
+    #print(model_patch)
 
     existing_test_directives = json.loads(entry["PASS_TO_PASS"])
     if use_test_patch:

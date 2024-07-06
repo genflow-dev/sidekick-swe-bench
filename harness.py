@@ -10,6 +10,8 @@ from pathlib import Path
 import lox
 
 from dump import dump
+from sidekick_client import FlowType, SidekickClient, TaskRequest, WorkspaceRequest
+import time
 from utils import (
     get_lite_dataset,
     # get_devin_instance_ids,
@@ -114,7 +116,8 @@ def configure_sidekick(git_tempdir, entry):
     #
     # Test script contains :
     #
-    #     SWEBENCH_DOCKER_FORK_DIR=${current_dir}/SWE-bench-docker python ${current_dir}/tests.py run_dev_tests ${entry.instance_id} ${git_tempdir}
+    #     cd ${current_dir} # for pdm to work with the existing virtualenv
+    #     SWEBENCH_DOCKER_FORK_DIR=${current_dir}/SWE-bench-docker pdm run ${current_dir}/tests.py run_dev_tests ${entry["instance_id"]} ${git_tempdir}
     #     RETURN=$?
     #     rm ${git_tempdir}/princeton-nlp--SWE-bench*.json 
     #     exit $RETURN
@@ -123,35 +126,44 @@ def configure_sidekick(git_tempdir, entry):
     #
     #     run_dev_tests.sh
     #     genflow.coding.toml
+    #     .genflowignore
     #
     # genflow.coding.toml contains:
     #
+    #     disable_human_in_the_loop = true
+    #
     #     [[test_commands]]
     #     command = "/usr/bin/env sh run_dev_tests.sh"
+    #
+
 
     # Create run_dev_tests.sh file
     current_dir = Path(__file__).parent
     run_dev_tests_sh = f"""
-    SWEBENCH_DOCKER_FORK_DIR={current_dir}/SWE-bench-docker python {current_dir}/tests.py run_dev_tests {entry.instance_id} {git_tempdir}
-    RETURN=$?
-    rm {git_tempdir}/princeton-nlp--SWE-bench*.json 
-    exit $RETURN
+cd ${current_dir} # for pdm to work with the existing virtualenv
+SWEBENCH_DOCKER_FORK_DIR={current_dir}/SWE-bench-docker pdm run {current_dir}/tests.py run_dev_tests {entry["instance_id"]} {git_tempdir}
+RETURN=$?
+rm {git_tempdir}/princeton-nlp--SWE-bench*.json 
+exit $RETURN
     """
     run_dev_tests_sh_path = Path(git_tempdir) / "run_dev_tests.sh"
     run_dev_tests_sh_path.write_text(run_dev_tests_sh)
 
     # Configure Sidekick via genflow.coding.toml file
     sidekick_config = """
-    [[test_commands]]
-    command = "/usr/bin/env sh run_dev_tests.sh"
+disable_human_in_the_loop = true
+
+[[test_commands]]
+command = "/usr/bin/env sh run_dev_tests.sh"
     """
     genflow_coding_toml_path = Path(git_tempdir) / "genflow.coding.toml"
     genflow_coding_toml_path.write_text(sidekick_config)
 
-    # Create .genflowignore file that just ignores the above two files
+    # Create .genflowignore file that just ignores the above two files and itself
     genflowignore = """
-    run_dev_tests.sh
-    genflow.coding.toml
+run_dev_tests.sh
+genflow.coding.toml
+.genflowignore
     """
     genflowignore_path = Path(git_tempdir) / ".genflowignore"
     genflowignore_path.write_text(genflowignore)
@@ -159,7 +171,7 @@ def configure_sidekick(git_tempdir, entry):
     # Commit the genflow.coding.toml, .genflowignore and run_dev_tests.sh files
     commit_cmd = f"git -C {git_tempdir} add genflow.coding.toml .genflowignore run_dev_tests.sh"
     subprocess.run(commit_cmd.split(), check=True)
-    commit_cmd = f"git -C {git_tempdir} commit -m 'Configure Sidekick'"
+    commit_cmd = f"git -C {git_tempdir} commit -m 'configure_sidekick'"
     subprocess.run(commit_cmd.split(), check=True)
 
 def process_one_instance(entry, num_tries, models, temperature, model_name_or_path, out_dname):
@@ -178,6 +190,8 @@ def process_one_instance(entry, num_tries, models, temperature, model_name_or_pa
     print(problem_statement)
     gold_files = files_in_patch(entry["patch"])
 
+    client = SidekickClient()
+
     results = []
     cost = 0
     winner = None
@@ -192,17 +206,76 @@ def process_one_instance(entry, num_tries, models, temperature, model_name_or_pa
 
             dump(instance_id)
             dump(gold_files)
-            configure_sidekick(git_tempdir, entry)
 
-            # Tell Sidekick to work on the `problem_statement`.
+            # Configure and tell Sidekick to work on the `problem_statement` by creating a task.
             # This is the same as if you pasted it into a new task within the Sidekick app.
-            try:
-                # TODO
-                1 / 0
-            except Exception as coder_err:
-                # swallow any exceptions during benchmarking
-                dump(coder_err)
-                continue
+            configure_sidekick(git_tempdir, entry)
+            all_workspaces = client.get_workspaces()
+
+            # TODO set up only one git_tempdir and one workspace per repo
+            # (instead of per instance_id), by relying on sidekick to use its
+            # local worktree environment to edit the code
+            workspace = next((w for w in all_workspaces if w.name == instance_id), None)
+            upsertRequestData = WorkspaceRequest(
+                name=instance_id,
+                local_repo_dir=git_tempdir,
+            )
+            if workspace:
+                workspace = client.update_workspace(workspace.id, upsertRequestData)
+            else:
+                workspace = client.create_workspace(upsertRequestData)
+
+            if workspace.name == instance_id:
+                # mark any existing tasks that are "to_do", "in_progress" or
+                # "blocked" in the instance-specific workspace as failed
+                existing_tasks = client.get_tasks(workspace.id, statuses="to_do,in_progress,blocked")
+                for task in existing_tasks:
+                    workspace.update_task(task.id, TaskRequest(
+                        description=task.description,
+                        flow_type=task.flow_type,
+                        agent_type=task.agent_type,
+                        status="failed",
+                    ))
+
+            task = workspace.create_task(TaskRequest(
+                description=f"""
+A user has reported the following bug/issue in the {entry["repo"]} project,
+which you are tasked with resolving. Before you try to fix the code, you must
+add a test that reproduces the issue. Ensure this test fails with the expected
+failure message. This test should pass after your fix is done. If requirements
+are unclear, you must consider several alternatives, think through their pros
+and cons, and then make an informed decision, which should ideally be recorded
+into your plan. Choose the solution that is most likely to cover the most edge
+cases and align best with developer expectations given the
+project/language/framework.
+
+The bug/issue report follows:
+
+${problem_statement}""",
+                flow_type=FlowType.PLANNED_DEV,
+            ))
+
+            # Wait for the task to be completed by polling the Sidekick API
+            sleep_interval = 5  # seconds
+            time_limit = 900 # seconds - set high due to slow tests via docker on mac
+            start_time = time.time()
+            while True:
+                task = workspace.get_task(task.id)
+                if task.status == "completed" or task.status == "failed":
+                    print(f"Task finished with status: {task.status}")
+                    break
+                if time.time() - start_time >= time_limit:
+                    print(f"Task timed out with status: {task.status}")
+                    break
+                time.sleep(sleep_interval)
+
+            # try:
+            #     # TODO
+            #     1 / 0
+            # except Exception as coder_err:
+            #     # swallow any exceptions during benchmarking
+            #     dump(coder_err)
+            #     continue
 
             dump(instance_id)
             dump(gold_files)
@@ -211,7 +284,11 @@ def process_one_instance(entry, num_tries, models, temperature, model_name_or_pa
             # cost += coder.total_cost
 
             # Get the diff between the current state and the original commit
-            model_patch = diff_versus_commit(git_tempdir, base_commit)
+            # Note: we actually use the next commit after the base_commit as the basis for the diff,
+            # because the test harness makes an extra git commit before sidekick starts
+            command = f"""git-C {git_tempdir} rev-list --topo-order {base_commit}.."$*" | tail -1"""
+            next_commit = subprocess.run(command, shell=True, capture_output=True, text=True).stdout
+            model_patch = diff_versus_commit(git_tempdir, next_commit)
             dump(model_patch)
 
             # Record the results for the logs
@@ -398,8 +475,13 @@ def process_instances(
         process_one_instance_func = process_one_instance
 
     for instance_id in remaining_instances:
-        if instance_id in done_instances:
-            print("skipping", instance_id)
+        entry = dataset[instance_id]
+
+        # Only process instances from the mwaskom/seaborn repo for now
+        # FIXME revert later on after testing seaborn is complete
+        if entry["repo"] != "mwaskom/seaborn":
+            continue
+        if instance_id != "mwaskom__seaborn-3407":
             continue
 
         process_one_instance_func(
