@@ -17,6 +17,10 @@ from swebench_docker.run_docker import run_docker_evaluation
 from swebench_docker.utils import get_test_directives
 import re
 from utils import get_dataset, get_devin_instance_ids, get_lite_dataset, load_predictions  # noqa: F401
+import tree_sitter_python as tspython
+from tree_sitter import Language, Parser
+
+PY_LANGUAGE = Language(tspython.language())
 
 
 # clipped from `run_docker_evaluation()`
@@ -219,14 +223,14 @@ def diff_and_run_tests(entry, git_dname, use_test_patch=False):
     if use_test_patch:
         additional_test_directives = json.loads(entry["FAIL_TO_PASS"])
     else: 
-        newly_added_test_directives = extract_added_test_directives_from_patch(entry, model_patch)
+        newly_added_test_directives = extract_added_test_directives_from_patch(entry, model_patch, git_dname)
         additional_test_directives = newly_added_test_directives
 
         # the following test directives are actually not present in the repo but in
         # the test patch. this appears to be an error in the swe-bench dataset. we
         # need to filter them out as trying to run non-existent tests will cause the
         # test runner to fail.
-        not_actually_existing_test_directives = extract_added_test_directives_from_patch(entry, entry["test_patch"])
+        not_actually_existing_test_directives = extract_added_test_directives_from_patch(entry, entry["test_patch"], None)
         existing_test_directives = [d for d in existing_test_directives if d not in not_actually_existing_test_directives]
 
     # print(f"Existing Test directives: {existing_test_directives}, Newly Added Test directives: {newly_added_test_directives}")
@@ -250,7 +254,68 @@ def diff_and_run_tests(entry, git_dname, use_test_patch=False):
 
     return passed, output
 
-def extract_added_test_directives_from_patch(entry, git_patch):
+def extract_added_test_directives_from_patch(entry, git_patch, git_dname):
+    """Given a `git_patch`, extract the test directives for any new tests
+    that have been added to the repo since the `base_commit`.
+    """
+    if git_dname == None:
+        # we can't extract test directives using tree-sitter without the git
+        # directory, but we do the hacky way using just the patch instead
+        return extract_added_test_directives_from_patch_old(entry, git_patch)
+
+    test_directives = []
+
+    file_rows = extract_file_rows_from_patch(git_patch)
+    print("Extracted File rows:")
+    print(file_rows)
+
+    print("Extracted Test directives:")
+    print(test_directives)
+    exit(1)
+
+
+def extract_file_rows_from_patch(git_patch):
+    file_rows = {}
+
+    # Regular expressions for matching file headers and chunk headers
+    file_pattern = re.compile(r'^diff --git a/.* b/(.*)$')
+    chunk_pattern = re.compile(r'^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@')
+
+    current_file = None
+    current_line = 0
+
+    # Process each line of the git diff
+    for line in git_patch.split('\n'):
+        # Check if this line is a file header
+        file_match = file_pattern.match(line)
+        if file_match:
+            current_file = file_match.group(1)
+            file_rows[current_file] = []
+            continue
+
+        # Check if this line is a chunk header
+        chunk_match = chunk_pattern.match(line)
+        if chunk_match:
+            current_line = int(chunk_match.group(1)) - 1
+            continue
+
+        # Process added or removed lines
+        print(current_file, current_line, line)
+        if line.startswith('+') and not line.startswith('+++'):
+            file_rows[current_file].append(current_line)
+            current_line += 1
+        elif line.startswith('-') and not line.startswith('---'):
+            file_rows[current_file].append(current_line)
+        elif line.startswith(' '):
+            current_line += 1
+
+    # Remove duplicates and sort the line numbers for each file
+    for file, rows in file_rows.items():
+        file_rows[file] = sorted(set(rows))
+
+    return file_rows
+
+def extract_added_test_directives_from_patch_old(entry, git_patch):
     """Given a `git_patch`, extract the test directives for any new tests
     that have been added to the repo since the `base_commit`.
     """
@@ -259,6 +324,7 @@ def extract_added_test_directives_from_patch(entry, git_patch):
 
     # for each hunk, extract the file path and the tests added
     test_directives = []
+
     for hunk in hunks:
         if len(hunk) == 0:
             continue
@@ -283,8 +349,9 @@ def extract_added_test_directives_from_patch(entry, git_patch):
                     test_directive = test_name
                 test_directives.append(test_directive)
 
-    #print("Newly Added Test directives:")
-    #print(test_directives)
+    print("Extracted Test directives (old):")
+    print(test_directives)
+    exit(1)
 
     return test_directives
 
