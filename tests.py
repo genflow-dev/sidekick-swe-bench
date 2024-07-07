@@ -162,14 +162,14 @@ def run_tests(entry, model_patch=None, use_test_patch=False, model_name_or_path=
 
     namespace = "aorwall"
     log_dir = tempfile.TemporaryDirectory(dir="/tmp").name
-    timeout = 200
+    timeout = 300 # TODO check how long the longest tests take
     log_suffix = ""
 
     asyncio.run(run_docker_evaluation(entry_instance, namespace, log_dir, timeout, log_suffix))
 
     log_fname = Path(log_dir) / f"{instance_id}.{model_name_or_path}.eval.log"
     if not log_fname.exists():
-        return None, ""
+        return False, f"Something went wrong, no log file found fo the test run at {log_fname}"
 
     log_text = log_fname.read_text()
     #log_lines = log_text.splitlines()
