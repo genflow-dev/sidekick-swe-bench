@@ -1,1 +1,6 @@
 .pdm-python
+SWE-bench-docker/
+__pycache__/
+predictions/
+repos/
+princeton-nlp--SWE-bench*.json
