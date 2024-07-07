@@ -9,10 +9,11 @@ import sys
 import tempfile
 from collections import defaultdict
 from pathlib import Path
+from typing import List, Optional
 
 from dump import dump
 from harness import diff_versus_commit
-from swebench_docker.constants import MAP_VERSION_TO_INSTALL
+from swebench_docker.constants import MAP_VERSION_TO_INSTALL, TESTS_PASSED
 from swebench_docker.run_docker import run_docker_evaluation
 from swebench_docker.utils import get_test_directives
 import re
@@ -171,12 +172,11 @@ def run_tests(entry, model_patch=None, use_test_patch=False, model_name_or_path=
         return None, ""
 
     log_text = log_fname.read_text()
-    log_lines = log_text.splitlines()
-    log_lines = [line for line in log_lines if line.startswith(">>>>")]
+    #log_lines = log_text.splitlines()
+    #log_lines = [line for line in log_lines if line.startswith(">>>>")]
     #print("\n".join(log_lines))
 
-    passed = ">>>>> All Tests Passed" in log_text
-
+    passed = TESTS_PASSED in log_text
     return passed, log_text
 
 def run_dev_tests(entry, git_dname):
@@ -253,6 +253,12 @@ def diff_and_run_tests(entry, git_dname, use_test_patch=False):
         raise ValueError("Output does not contain the expected 'Std. Output:' string, did the SWE-bench-docker test runner change?")
     output = output.split("Std. Output:")[-1]
 
+    # throw away very wordy test directives list
+    output = output.replace(" ".join(test_directives), "[... omitted test directives]")
+
+    # throw away additional INFO/DEBUG lines from SWE-bench-docker
+    output = "\n".join([line for line in output.split("\n") if not line.startswith("[INFO]") and not line.startswith("[DEBUG]")])
+
     return passed, output
 
 def extract_added_test_directives_from_patch(entry, git_patch, git_dname):
@@ -264,15 +270,80 @@ def extract_added_test_directives_from_patch(entry, git_patch, git_dname):
         # directory, but we do the hacky way using just the patch instead
         return extract_added_test_directives_from_patch_old(entry, git_patch)
 
+    parser = Parser(PY_LANGUAGE)
     test_directives = []
 
     file_rows = extract_file_rows_from_patch(git_patch)
-    print("Extracted File rows:")
-    print(file_rows)
+    #print("Extracted File rows:")
+    #print(file_rows)
 
-    print("Extracted Test directives:")
-    print(test_directives)
-    exit(1)
+    for file_path, rows in file_rows.items():
+        # TODO check if the file is in the testpaths:
+        if file_path.endswith(".py"):
+            with open(f"{git_dname}/{file_path}") as f:
+                source_code = bytes(f.read(), "utf8")
+                file_test_directives = extract_test_directives_from_source_code(source_code, parser, file_path, rows)
+                test_directives.extend(file_test_directives)
+
+    #print("Extracted Test directives:")
+    #print(test_directives)
+    return test_directives
+
+def extract_test_directives_from_source_code(source_code: bytes, parser: Parser, file_path: str, whitelist_rows: Optional[List[int]]) -> List[str]:
+    test_directives = []
+    tree = parser.parse(source_code)
+    query = PY_LANGUAGE.query(
+        """
+(class_definition
+  name: (identifier) @class.name
+  body: (_
+    (function_definition
+      name: (identifier) @class.method.name
+    ) @overlap
+  )
+)
+
+(module
+  (function_definition
+    name: (identifier) @function.name
+  ) @overlap
+)
+"""
+    )
+    matches = query.matches(tree.root_node)
+    for match in matches:
+        if whitelist_rows != None:
+            overlap_node = match[1]['overlap']
+            has_overlap = any([overlap_node.start_point.row <= row <= overlap_node.end_point.row for row in whitelist_rows])
+            if not(has_overlap):
+                continue
+
+        if 'function.name' in match[1]:
+            node = match[1]['function.name']
+            node.start_point.row
+            function_name = source_code[node.start_byte:node.end_byte].decode("utf8")
+            if function_name.startswith("test"):
+                directive = f"{file_path}::{function_name}"
+                test_directives.append(directive)
+        elif 'class.method.name' in match[1]:
+            node = match[1]['class.method.name']
+            method_name = source_code[node.start_byte:node.end_byte].decode("utf8")
+            class_node = match[1]['class.name']
+            class_name = source_code[class_node.start_byte:class_node.end_byte].decode("utf8")
+            # NOTE checking class name is not sufficient as inheritence can also
+            # play a part, and that's a lot more work, so we'll just leave the
+            # class check out until it becomes a problem. for common conventions
+            # see: https://docs.pytest.org/en/7.1.x/explanation/goodpractices.html#conventions-for-python-test-discovery
+            # class_name.startswith("Test") and
+            if method_name.startswith("test"):
+                directive = f"{file_path}::{class_name}::{method_name}"
+                test_directives.append(directive)
+        else:
+            raise ValueError(f"Unexpected match: {match[1]}")
+
+    return test_directives
+    #print("Matches:")
+    #print(matches)
 
 def extract_file_rows_from_patch(git_patch):
     file_rows = {}
@@ -357,10 +428,8 @@ def extract_added_test_directives_from_patch_old(entry, git_patch):
                     test_directive = test_name
                 test_directives.append(test_directive)
 
-    print("Extracted Test directives (old):")
-    print(test_directives)
-    exit(1)
-
+    #print("Extracted Test directives (old):")
+    #print(test_directives)
     return test_directives
 
 
@@ -484,7 +553,6 @@ def main(argv):
         else:
             raise ValueError(f"Invalid command: {command}")
         print(output)
-        print(f"Tests Passed: {passed}")
 
         if passed:
             status = 0
