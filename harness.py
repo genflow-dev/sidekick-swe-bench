@@ -21,10 +21,10 @@ from utils import (
     pick_winner,
 )
 
+TEST_SERVER_HOST = "localhost:9385"
 REPOS_DNAME = Path("repos")
 CHAT_LOGS_DNAME = Path("chat-logs")
 PREDS_DNAME = Path("predictions")
-
 
 def diff_versus_commit(git_dname, commit):
     """
@@ -110,14 +110,14 @@ def show_problems(dataset):
         problem = entry["problem_statement"].splitlines()[0]
         print(f"{inst}: {problem}")
 
-def configure_sidekick(git_tempdir, entry):
+def configure_sidekick(git_tempdir, entry, test_server_host=""):
     # configure sidekick via genflow.coding.toml file + .genflowignore file + setup run_dev_tests.sh script
     # then commit that stuff too
     #
     # Test script contains :
     #
     #     cd {current_dir} # for pdm to work with the existing virtualenv
-    #     SWEBENCH_DOCKER_FORK_DIR={current_dir}/SWE-bench-docker pdm run {current_dir}/tests.py run_dev_tests {entry["instance_id"]} {git_tempdir}
+    #     SWEBENCH_DOCKER_FORK_DIR={current_dir}/SWE-bench-docker pdm run {current_dir}/tests.py run_dev_tests {entry["instance_id"]} {git_tempdir} {test_server_host}
     #     RETURN=$?
     #     rm {git_tempdir}/princeton-nlp--SWE-bench*.json 
     #     exit $RETURN
@@ -141,7 +141,7 @@ def configure_sidekick(git_tempdir, entry):
     current_dir = Path(__file__).parent
     run_dev_tests_sh = f"""
 cd {current_dir} # for pdm to work with the existing virtualenv
-SWEBENCH_DOCKER_FORK_DIR={current_dir}/SWE-bench-docker pdm run {current_dir}/tests.py run_dev_tests {entry["instance_id"]} {git_tempdir}
+SWEBENCH_DOCKER_FORK_DIR={current_dir}/SWE-bench-docker pdm run {current_dir}/tests.py run_dev_tests {entry["instance_id"]} {git_tempdir} {test_server_host}
 RETURN=$?
 rm {git_tempdir}/princeton-nlp--SWE-bench*.json 
 exit $RETURN
@@ -209,7 +209,7 @@ def process_one_instance(entry, num_tries, models, temperature, model_name_or_pa
 
             # Configure and tell Sidekick to work on the `problem_statement` by creating a task.
             # This is the same as if you pasted it into a new task within the Sidekick app.
-            configure_sidekick(git_tempdir, entry)
+            configure_sidekick(git_tempdir, entry, TEST_SERVER_HOST)
             all_workspaces = client.get_workspaces()
 
             # TODO set up only one git_tempdir and one workspace per repo

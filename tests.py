@@ -9,7 +9,10 @@ import sys
 import tempfile
 from collections import defaultdict
 from pathlib import Path
+import time
 from typing import List, Optional
+
+import requests
 
 from dump import dump
 from harness import diff_versus_commit
@@ -107,7 +110,35 @@ CUSTOM_MAP_REPO_TO_TEST_FRAMEWORK = {
     "sympy/sympy": "bin/test -C --verbose",
 }
 
-def run_tests(entry, model_patch=None, use_test_patch=False, model_name_or_path="none", test_directives=None):
+def run_tests_via_server(entry, model_patch=None, use_test_patch=False, model_name_or_path="none", test_directives=None, test_server_host=None):
+    headers = {"Content-Type": "application/json"}
+    body = {
+        "entry": entry,
+        "model_patch": model_patch,
+        "use_test_patch": use_test_patch,
+        "model_name_or_path": model_name_or_path,
+        "test_directives": test_directives,
+    }
+
+    #print("Sending POST request...")
+    url = f"http://{test_server_host}/run_tests"
+    response = requests.post(url, json=body, headers=headers)
+    if response.status_code == 200:
+        try:
+            response_data = response.json()
+            passed = response_data.get("passed")
+            log_text = response_data.get("log_text")
+            #print(f"Passed: {passed}")
+            #print(f"Log text: {log_text}")
+            return passed, log_text
+        except json.JSONDecodeError:
+            message = f"Error: Running tests via server failed: Response is not valid JSON: {response.text}"
+            return False, message
+    else:
+        message = f"Error: Running tests via server failed: Received status code {response.status_code}\n{response.text}"
+        return False, message
+
+def run_tests(entry, model_patch=None, use_test_patch=False, model_name_or_path="none", test_directives=None, test_server_host=None):
     """
     Run tests for the SWE Bench `entry`, optionally applying a `model_patch` first.
 
@@ -119,6 +150,9 @@ def run_tests(entry, model_patch=None, use_test_patch=False, model_name_or_path=
     Optionally specify a `model_name_or_path`, which isn't really used since
     the log_dir for the tests is a temp dir which is discarded.
     """
+    if test_server_host is not None:
+        return run_tests_via_server(entry, model_patch, use_test_patch, model_name_or_path, test_directives, test_server_host)
+
     instance_id = entry["instance_id"]
     # print(f"Running tests for {instance_id}...")
 
@@ -179,18 +213,18 @@ def run_tests(entry, model_patch=None, use_test_patch=False, model_name_or_path=
     passed = TESTS_PASSED in log_text
     return passed, log_text
 
-def run_dev_tests(entry, git_dname):
+def run_dev_tests(entry, git_dname, test_server_host=None):
     # during development, we don't have a test patch, so we just run existing
     # tests or tests added in the model patch
-    return diff_and_run_tests(entry, git_dname, use_test_patch=False)
+    return diff_and_run_tests(entry, git_dname, use_test_patch=False, test_server_host=test_server_host)
 
-def run_eval_tests(entry, git_dname):
+def run_eval_tests(entry, git_dname, test_server_host=None):
     # like run_dev_tests, but now we have the test patch used for evaluation.
     # also, we skip evaluating any additional tests added in the model patch,
     # in case of git patch apply conflicts and for a cleaner evaluation.
-    return diff_and_run_tests(entry, git_dname, use_test_patch=True)
+    return diff_and_run_tests(entry, git_dname, use_test_patch=True, test_server_host=test_server_host)
 
-def diff_and_run_tests(entry, git_dname, use_test_patch=False):
+def diff_and_run_tests(entry, git_dname, use_test_patch=False, test_server_host=None):
     """Given the current contents of the `git_dname`, run the tests that were
     present in the entry's `repo` at the time of the `base_commit` and are
     specified as required to pass (i.e. PASS_TO_PASS).
@@ -236,12 +270,14 @@ def diff_and_run_tests(entry, git_dname, use_test_patch=False):
 
     # print(f"Existing Test directives: {existing_test_directives}, Newly Added Test directives: {newly_added_test_directives}")
     test_directives = existing_test_directives + additional_test_directives
+    test_directives = newly_added_test_directives # FIXME remove this line
 
     passed, output = run_tests(
         entry,
         model_patch=model_patch,
         use_test_patch=use_test_patch,
         test_directives=test_directives,
+        test_server_host=test_server_host,
     )
 
     # We were UNABLE to run tests
@@ -543,13 +579,17 @@ def main(argv):
         instance_id = sys.argv[2]
         repo_dir = sys.argv[3]
 
+        test_server_host = None # optional
+        if len(argv) > 4:
+            test_server_host = sys.argv[4]
+
         dataset = get_lite_dataset()
         entry = dataset[instance_id]
         #print(entry)
         if command == "run_dev_tests":
-            passed, output = run_dev_tests(entry, repo_dir)
+            passed, output = run_dev_tests(entry, repo_dir, test_server_host)
         elif command == "run_eval_tests":
-            passed, output = run_eval_tests(entry, repo_dir)
+            passed, output = run_eval_tests(entry, repo_dir, test_server_host)
         else:
             raise ValueError(f"Invalid command: {command}")
         print(output)
