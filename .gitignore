@@ -3,4 +3,5 @@ SWE-bench-docker/
 __pycache__/
 predictions/
 repos/
+logs/
 princeton-nlp--SWE-bench*.json

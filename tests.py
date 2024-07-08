@@ -195,7 +195,9 @@ def run_tests(entry, model_patch=None, use_test_patch=False, model_name_or_path=
     }
 
     namespace = "aorwall"
-    log_dir = tempfile.TemporaryDirectory(dir="/tmp").name
+    #log_dir = tempfile.TemporaryDirectory(dir="/tmp").name
+    current_dir = Path(__file__).parent
+    log_dir = f"{current_dir}/logs"
     timeout = 300 # TODO check how long the longest tests take
     log_suffix = ""
 
