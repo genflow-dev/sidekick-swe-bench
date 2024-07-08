@@ -257,11 +257,11 @@ The bug/issue report follows:
 
             # Wait for the task to be completed by polling the Sidekick API
             sleep_interval = 5  # seconds
-            time_limit = 900 # seconds - set high due to slow tests via docker on mac
+            time_limit = 1500 # seconds - set high due to slow tests via docker on mac
             start_time = time.time()
             while True:
                 task = workspace.get_task(task.id)
-                if task.status == "completed" or task.status == "failed":
+                if task.status == "complete" or task.status == "failed":
                     print(f"Task finished with status: {task.status}")
                     break
                 if time.time() - start_time >= time_limit:
@@ -286,7 +286,7 @@ The bug/issue report follows:
             # Get the diff between the current state and the original commit
             # Note: we actually use the next commit after the base_commit as the basis for the diff,
             # because the test harness makes an extra git commit before sidekick starts
-            command = f"""git-C {git_tempdir} rev-list --topo-order {base_commit}.."$*" | tail -1"""
+            command = f"""git -C {git_tempdir} rev-list --topo-order {base_commit}.."$*" | tail -1"""
             next_commit = subprocess.run(command, shell=True, capture_output=True, text=True).stdout
             model_patch = diff_versus_commit(git_tempdir, next_commit)
             dump(model_patch)
@@ -481,8 +481,8 @@ def process_instances(
         # FIXME revert later on after testing seaborn is complete
         if entry["repo"] != "mwaskom/seaborn":
             continue
-        if instance_id != "mwaskom__seaborn-3407":
-            continue
+        #if instance_id != "mwaskom__seaborn-3407":
+        #    continue
 
         process_one_instance_func(
             dataset[instance_id],
