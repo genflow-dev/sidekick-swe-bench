@@ -21,7 +21,7 @@ from utils import (
     pick_winner,
 )
 
-TEST_SERVER_HOST = "localhost:9385"
+TEST_SERVER_HOST = "10.0.0.135:9386"
 REPOS_DNAME = Path("repos")
 CHAT_LOGS_DNAME = Path("chat-logs")
 PREDS_DNAME = Path("predictions")
