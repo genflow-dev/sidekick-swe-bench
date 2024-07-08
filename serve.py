@@ -1,10 +1,10 @@
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from socketserver import ThreadingMixIn
 import json
-import time
-
 from tests import run_tests
 
 PORT = 9385
+MAX_THREADS = 20
 
 class SimpleHandler(BaseHTTPRequestHandler):
     def do_POST(self):
@@ -34,10 +34,14 @@ class SimpleHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write('Not found'.encode('utf-8'))
 
-def run(server_class=HTTPServer, handler_class=SimpleHandler, port=PORT):
+class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
+    daemon_threads = True
+
+def run(server_class=ThreadedHTTPServer, handler_class=SimpleHandler, port=PORT):
     server_address = ('', port)
     httpd = server_class(server_address, handler_class)
-    print(f'Starting server on port {port}...')
+    httpd.request_queue_size = MAX_THREADS
+    print(f'Starting threaded server on port {port}...')
     httpd.serve_forever()
 
 if __name__ == '__main__':

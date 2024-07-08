@@ -32,6 +32,10 @@ This repo is for running and evaluating Sidekick on SWE Bench. As described in t
 
 2. The `serve.py` script allows serving of test reslults. It's not required to run the harness, but allows running tests on a machine different from the one where Sidekick is running, eg in the cloud. You run this somewhere, then configure harness.py to use it by setting the test_server_host parameter.
 
+```sh
+SWEBENCH_DOCKER_FORK_DIR=$(pwd)/SWE-bench-docker pdm run serve.py
+```
+
 3. The `harness.py` script will run Sidekick on all the problems and produce predictions. It does not do any *acceptance* testing. It does run any pre-existing tests that were part of the problem's repo, but never runs any acceptance tests. This script produces a bunch of predictions as individual json files in `predictions/<DIRNAME>/<instance_id>.json`.
 
 Run it like so:

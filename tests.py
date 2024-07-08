@@ -270,7 +270,6 @@ def diff_and_run_tests(entry, git_dname, use_test_patch=False, test_server_host=
 
     # print(f"Existing Test directives: {existing_test_directives}, Newly Added Test directives: {newly_added_test_directives}")
     test_directives = existing_test_directives + additional_test_directives
-    test_directives = newly_added_test_directives # FIXME remove this line
 
     passed, output = run_tests(
         entry,
