@@ -22,7 +22,7 @@ from utils import (
     old,
 )
 
-JUST_DEVIN_570 = True
+JUST_DEVIN_570 = False
 
 
 def run_evals(swe_bench_tasks, log_dir, predictions_jsonl):
@@ -128,7 +128,7 @@ def run_evals_on_dname(dname):
     dump(predictions_jsonl)
 
     log_dir = Path("logs") / dname.name
-    log_dir.mkdir(exist_ok=True)
+    log_dir.mkdir(exist_ok=True, parents=True)
     dump(log_dir)
 
     any_need_evals = any("resolved" not in pred for pred in predictions.values())
@@ -194,8 +194,9 @@ def main():
     preds_dir.mkdir(exist_ok=True)
 
     # Choose the 1st plausible pred or use the fallback logic for least bad pred
+    # NOTE this isn't a thing for sidekick atm, it was a thing for aider
     predictions = choose_predictions(
-        dnames, model_name_or_path, copy_md=True, devin_only=JUST_DEVIN_570
+        dnames, model_name_or_path, copy_md=False, devin_only=JUST_DEVIN_570
     )
     if not predictions:
         print("No predictions")
@@ -289,9 +290,10 @@ def main():
 
         plausible = (
             data["model_patch"]
-            and data["edit_outcome"]
-            and data["lint_outcome"]
-            and data["test_outcome"]
+            and True
+            #and data["edit_outcome"]
+            #and data["lint_outcome"]
+            #and data["test_outcome"]
         )
         if plausible:
             total_plausible += 1

@@ -99,7 +99,7 @@ def get_plausible(preds):
 def check_criteria(pred, criteria):
     attrs = criteria.split()
     for attr in attrs:
-        if not pred[attr]:
+        if not pred.get(attr):
             return False
     return True
 
