@@ -322,6 +322,16 @@ def extract_added_test_directives_from_patch(entry, git_patch, git_dname):
                 file_test_directives = extract_test_directives_from_source_code(source_code, parser, file_path, rows)
                 test_directives.extend(file_test_directives)
 
+    # For Django tests, remove extension + "tests/" prefix and convert slashes to dots (module referencing)
+    if entry["repo"] == "django/django":
+        directives_transformed = []
+        for d in directives:
+            d = d[: -len(".py")] if d.endswith(".py") else d
+            d = d[len("tests/") :] if d.startswith("tests/") else d
+            d = d.replace("/", ".")
+            directives_transformed.append(d)
+        directives = directives_transformed
+
     #print("Extracted Test directives:")
     #print(test_directives)
     return test_directives
