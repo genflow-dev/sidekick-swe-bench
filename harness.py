@@ -127,6 +127,7 @@ def configure_sidekick(git_tempdir, entry, test_server_host=""):
     #     run_dev_tests.sh
     #     genflow.coding.toml
     #     .genflowignore
+    #     *locale/
     #
     # genflow.coding.toml contains:
     #
@@ -135,7 +136,6 @@ def configure_sidekick(git_tempdir, entry, test_server_host=""):
     #     [[test_commands]]
     #     command = "/usr/bin/env sh run_dev_tests.sh"
     #
-
 
     # Create run_dev_tests.sh file
     current_dir = Path(__file__).parent
@@ -164,6 +164,7 @@ command = "/usr/bin/env sh run_dev_tests.sh"
 run_dev_tests.sh
 genflow.coding.toml
 .genflowignore
+*locale/
     """
     genflowignore_path = Path(git_tempdir) / ".genflowignore"
     genflowignore_path.write_text(genflowignore)
@@ -240,14 +241,13 @@ def process_one_instance(entry, num_tries, models, temperature, model_name_or_pa
             task = workspace.create_task(TaskRequest(
                 description=f"""
 A user has reported the following bug/issue in the {entry["repo"]} project,
-which you are tasked with resolving. Before you try to fix the code, you must
-add a test that reproduces the issue. Ensure this test fails with the expected
-failure message. This test should pass after your fix is done. If requirements
-are unclear, you must consider several alternatives, think through their pros
-and cons, and then make an informed decision, which should ideally be recorded
-into your plan. Choose the solution that is most likely to cover the most edge
-cases and align best with developer expectations given the
-project/language/framework.
+which you are tasked with reproducing and then resolving.
+
+If requirements to resolve the issue are unclear, you must consider several
+alternatives, think through their pros and cons, and then make an informed
+decision, which should ideally be recorded into your plan. Choose the solution
+that is most likely to cover the most edge cases and align best with developer
+expectations given the project/language/framework.
 
 The bug/issue report follows:
 
