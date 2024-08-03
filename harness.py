@@ -196,6 +196,7 @@ def process_one_instance(entry, num_tries, models, temperature, model_name_or_pa
     results = []
     cost = 0
     winner = None
+    timeoutCount = 0
 
     # Do NUM_TRIES tries for each of the models, until we find a *plausible* solution
     for attempt in range(1, num_tries + 1):
@@ -238,6 +239,17 @@ def process_one_instance(entry, num_tries, models, temperature, model_name_or_pa
                         status="failed",
                     ))
 
+            planning_prompt = """
+Follow this exact plan template, with steps in this exact order:
+
+1. Reproduce the issue: Write a test that fails based on the bug report
+2. Fix the issue: blah blah blah
+
+Fill in the template with details that are more specific, including replacing
+"Fix the issue", and add multiple steps to "Fix the issue" if you have
+identified clear steps involving editing code. The order here is important - we
+want to repro the issue with a test before fixing the issue, following TDD
+red-green methodology."""
             task = workspace.create_task(TaskRequest(
                 description=f"""
 A user has reported the following bug/issue in the {entry["repo"]} project,
@@ -253,11 +265,12 @@ The bug/issue report follows:
 
 {problem_statement}""",
                 flow_type=FlowType.PLANNED_DEV,
+                flow_options={"planningPrompt": planning_prompt, "reproduceIssue": True},
             ))
 
             # Wait for the task to be completed by polling the Sidekick API
             sleep_interval = 5  # seconds
-            time_limit = 1500 # seconds - set high due to slow tests via docker on mac
+            time_limit = 1500
             start_time = time.time()
             while True:
                 task = workspace.get_task(task.id)
@@ -266,6 +279,7 @@ The bug/issue report follows:
                     break
                 if time.time() - start_time >= time_limit:
                     print(f"Task timed out with status: {task.status}")
+                    timeoutCount += 1
                     break
                 time.sleep(sleep_interval)
 
@@ -354,7 +368,10 @@ The bug/issue report follows:
 
     out_fname = out_dname / (instance_id + ".json")
     out_fname.write_text(json.dumps(winner, indent=4))
-
+    if timeoutCount >= 5:
+        # TODO remove early exit for final harness run
+        print(f"Task timed out at least 5 times, latest being {instance_id}, exiting early to investigate")
+        exit(1)
 
 def main():
     #
@@ -369,8 +386,9 @@ def main():
     # models = ["openrouter/deepseek/deepseek-chat"]
     # models = ["gpt-4o", "openrouter/anthropic/claude-3-opus"]
     # models = ["openrouter/anthropic/claude-3-opus"]
-    models = ["gpt-4o"]
+    # models = ["gpt-4o"]
     # models = ["gpt-4-1106-preview"]
+    models = ["claude-3-5-sonnet-20240620"]
 
     # How many attempts per model to try and find a plausible solutions?
     num_tries = 1
@@ -454,7 +472,7 @@ def process_instances(
     remaining_instances -= plausible_instances
 
     remaining_instances = list(remaining_instances)
-    random.shuffle(remaining_instances)
+    #random.shuffle(remaining_instances)
 
     dump(len(remaining_instances))
     dump(sorted(remaining_instances))
@@ -474,14 +492,24 @@ def process_instances(
     else:
         process_one_instance_func = process_one_instance
 
-    for instance_id in remaining_instances:
+    count = 0
+    seen_repos = set()
+    for instance_id in sorted(remaining_instances):
         entry = dataset[instance_id]
 
         # Only process instances from the mwaskom/seaborn repo for now
         # FIXME revert later on after testing seaborn is complete
-        if entry["repo"] != "mwaskom/seaborn":
-            continue
+        #if entry["repo"] != "mwaskom/seaborn":
+        #    continue
         #if instance_id != "mwaskom__seaborn-3407":
+        #    continue
+        if entry["repo"] in seen_repos:
+            continue
+        seen_repos.add(entry["repo"])
+        #if entry["repo"] != "django/django":
+        #    continue
+        #count += 1
+        #if count >= 5:
         #    continue
 
         process_one_instance_func(

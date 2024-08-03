@@ -41,6 +41,7 @@ class TaskRequest:
     flow_type: FlowType = field(metadata=config(field_name="flowType"))
     agent_type: str = field(default="llm", metadata=config(field_name="agentType"))
     status: str = field(default="to_do")
+    flow_options: dict = field(default_factory=dict, metadata=config(field_name="flowOptions"))
 
 @dataclass_json
 @dataclass

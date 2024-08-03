@@ -143,8 +143,8 @@ def remove_patches_to_tests(model_patch):
         if not is_tests:
             filtered_lines.append(line)
     return "".join(filtered_lines)
-TEST_PYTEST = "pytest --no-header -rfE --disable-warnings --tb=no -p no:cacheprovider"
-TEST_PYTEST_SKIP_NO_HEADER = "pytest -rfE --disable-warnings --tb=no -p no:cacheprovider"
+TEST_PYTEST = "pytest --no-header -rfE --disable-warnings --tb=short -p no:cacheprovider"
+TEST_PYTEST_SKIP_NO_HEADER = "pytest -rfE --disable-warnings --tb=short -p no:cacheprovider"
 CUSTOM_MAP_REPO_TO_TEST_FRAMEWORK = {
     "astropy/astropy": TEST_PYTEST,
     "django/django": "./tests/runtests.py --verbosity 0 --noinput", # consider: --shuffle --parallel=1
