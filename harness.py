@@ -131,8 +131,9 @@ def configure_sidekick(git_tempdir, entry, test_server_host=""):
     #
     # genflow.coding.toml contains:
     #
+    #     max_iterations = 6
+    #     max_planning_iterations = 11
     #     disable_human_in_the_loop = true
-    #
     #     [[test_commands]]
     #     command = "/usr/bin/env sh run_dev_tests.sh"
     #
@@ -151,6 +152,8 @@ exit $RETURN
 
     # Configure Sidekick via genflow.coding.toml file
     sidekick_config = """
+max_iterations = 6
+max_planning_iterations = 11
 disable_human_in_the_loop = true
 
 [[test_commands]]
@@ -283,14 +286,6 @@ The bug/issue report follows:
                     break
                 time.sleep(sleep_interval)
 
-            # try:
-            #     # TODO
-            #     1 / 0
-            # except Exception as coder_err:
-            #     # swallow any exceptions during benchmarking
-            #     dump(coder_err)
-            #     continue
-
             dump(instance_id)
             dump(gold_files)
 
@@ -312,6 +307,7 @@ The bug/issue report follows:
                 model_name_or_path=model_name_or_path,
                 model_patch=model_patch,
                 # For computing stats
+                task_status=task.status,
                 #model=model,
                 #temperature=temperature,
                 #cost=coder.total_cost,
