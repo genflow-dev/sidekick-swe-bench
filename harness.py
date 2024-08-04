@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 
 import json
-import random
 import subprocess
 import sys
 import tempfile
@@ -30,7 +29,6 @@ def diff_versus_commit(git_dname, commit):
     """
     Take a diff of `git_dname` current contents versus the `commit`.
     """
-
     diff_cmd = f"git -C {git_dname} diff {commit}"
     diff_output = subprocess.check_output(diff_cmd.split()).decode()
     return diff_output
@@ -111,32 +109,10 @@ def show_problems(dataset):
         print(f"{inst}: {problem}")
 
 def configure_sidekick(git_tempdir, entry, test_server_host=""):
-    # configure sidekick via genflow.coding.toml file + .genflowignore file + setup run_dev_tests.sh script
-    # then commit that stuff too
-    #
-    # Test script contains :
-    #
-    #     cd {current_dir} # for pdm to work with the existing virtualenv
-    #     SWEBENCH_DOCKER_FORK_DIR={current_dir}/SWE-bench-docker pdm run {current_dir}/tests.py run_dev_tests {entry["instance_id"]} {git_tempdir} {test_server_host}
-    #     RETURN=$?
-    #     rm {git_tempdir}/princeton-nlp--SWE-bench*.json 
-    #     exit $RETURN
-    # 
-    # .genflowignore contains:
-    #
-    #     run_dev_tests.sh
-    #     genflow.coding.toml
-    #     .genflowignore
-    #     *locale/
-    #
-    # genflow.coding.toml contains:
-    #
-    #     max_iterations = 6
-    #     max_planning_iterations = 11
-    #     disable_human_in_the_loop = true
-    #     [[test_commands]]
-    #     command = "/usr/bin/env sh run_dev_tests.sh"
-    #
+    """
+    configure sidekick via genflow.coding.toml file + .genflowignore file + setup run_dev_tests.sh script
+    then commit that stuff too. 
+    """
 
     # Create run_dev_tests.sh file
     current_dir = Path(__file__).parent
@@ -151,6 +127,10 @@ exit $RETURN
     run_dev_tests_sh_path.write_text(run_dev_tests_sh)
 
     # Configure Sidekick via genflow.coding.toml file
+    # NOTE: if we wanted to turn on more ruff checks, we could add noqa to
+    # everything so that ruff doesn't give us false positives in unrelated code.
+    # However, it's not clear yet if any of the checks that fail on existing
+    # codebases will be particularly useful.
     sidekick_config = """
 max_iterations = 6
 max_planning_iterations = 11
@@ -158,6 +138,15 @@ disable_human_in_the_loop = true
 
 [[test_commands]]
 command = "/usr/bin/env sh run_dev_tests.sh"
+
+[[check_commands]]
+command = "python -m compileall {file}"
+
+[[check_commands]]
+command = "ruff check --preview --select E101,E112,E113,E114,E115,E116,E117,E9,F821,F823,F831,F406,F407,F701,F702,F704,F706,F722 {file}"
+
+[[autofix_commands]]
+command = "ruff check --fix-only {file}"
     """
     genflow_coding_toml_path = Path(git_tempdir) / "genflow.coding.toml"
     genflow_coding_toml_path.write_text(sidekick_config)
@@ -262,7 +251,8 @@ If requirements to resolve the issue are unclear, you must consider several
 alternatives, think through their pros and cons, and then make an informed
 decision, which should ideally be recorded into your plan. Choose the solution
 that is most likely to cover the most edge cases and align best with developer
-expectations given the project/language/framework.
+expectations given the project/language/framework. Do not edit any documentation,
+doc strings as part of your solution, only edit the actual code and tests.
 
 The bug/issue report follows:
 
@@ -384,7 +374,7 @@ def main():
     # models = ["openrouter/anthropic/claude-3-opus"]
     # models = ["gpt-4o"]
     # models = ["gpt-4-1106-preview"]
-    models = ["claude-3-5-sonnet-20240620"]
+    models = ["mixed-models-20240804"]
 
     # How many attempts per model to try and find a plausible solutions?
     num_tries = 1
