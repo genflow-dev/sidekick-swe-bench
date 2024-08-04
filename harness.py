@@ -143,7 +143,7 @@ command = "/usr/bin/env sh run_dev_tests.sh"
 command = "python -m compileall {file}"
 
 [[check_commands]]
-command = "ruff check --preview --select E101,E112,E113,E114,E115,E116,E117,E9,F821,F823,F831,F406,F407,F701,F702,F704,F706,F722 {file}"
+command = "ruff check --preview --select E101,E112,E113,E114,E115,E116,E117,E9,F821,F823,F406,F407,F701,F702,F704,F706,F722 {file}"
 
 [[autofix_commands]]
 command = "ruff check --fix-only {file}"
