@@ -2,8 +2,18 @@
 
 ## Installation
 
+### Dependencies
+
+Install:
+
+1. [ruff](https://docs.astral.sh/ruff/installation/)
+2. [pdm](https://pdm-project.org/en/latest/#installation)
+3. [sidekick](TODO)
+
+### Setup
+
 ```sh
-# Clone this repoar
+# Clone this repo
 git clone https://github.com/genflow-dev/sidekick-swe-bench
 
 # Clone the SWE Bench docker repo into a subdir of this repo
@@ -44,4 +54,11 @@ Run it like so:
 pdm run harness.py 
 ```
 
+This will expect Sidekick's API server and worker processes (and temporal server) to be running. For instructions on running all that, see [Sidekick's Readme](TODO)
+
 4. The `report.py` script consumes all those predictions and turns them into `predictions/<DIRNAME>/all_preds.jsonl`. It then feeds that jsonl file through the SWE Bench evaluation and reporting scripts to produce `logs/<DIRNAME>/<instance_id>...eval.log` files as well as a summary report in `predictions/<DIRNAME>/results.json`.
+
+
+```sh
+SWEBENCH_DOCKER_FORK_DIR=$(pwd)/SWE-bench-docker pdm run report.py predictions/<DIRNAME>
+```
