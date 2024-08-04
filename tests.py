@@ -147,7 +147,7 @@ TEST_PYTEST = "pytest --no-header -rfE --disable-warnings --tb=short -p no:cache
 TEST_PYTEST_SKIP_NO_HEADER = "pytest -rfE --disable-warnings --tb=short -p no:cacheprovider"
 CUSTOM_MAP_REPO_TO_TEST_FRAMEWORK = {
     "astropy/astropy": TEST_PYTEST,
-    "django/django": "./tests/runtests.py --verbosity 0 --noinput", # consider: --shuffle --parallel=1
+    "django/django": "./tests/runtests.py --verbosity 0 --noinput --parallel=1",
     "marshmallow-code/marshmallow": TEST_PYTEST,
     "matplotlib/matplotlib": TEST_PYTEST,
     "mwaskom/seaborn": "pytest --no-header -rfE --disable-warnings",
