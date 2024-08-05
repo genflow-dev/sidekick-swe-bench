@@ -519,7 +519,7 @@ def process_instances(
 
     count = 0
     seen_repos = defaultdict(int)
-    for instance_id in sorted(remaining_instances):
+    for instance_id in remaining_instances:
         entry = dataset[instance_id]
 
         # Only process instances from the mwaskom/seaborn repo for now
@@ -528,12 +528,12 @@ def process_instances(
         #    continue
         # if instance_id != "mwaskom__seaborn-3407":
         #    continue
-        if seen_repos[entry["repo"]] >= 5:
-            continue
-        seen_repos[entry["repo"]] += 1
+        #if seen_repos[entry["repo"]] >= 5:
+        #    continue
+        #seen_repos[entry["repo"]] += 1
         # WIP fixing sympy tests
-        if entry["repo"] == "sympy/sympy":
-            continue
+        #if entry["repo"] == "sympy/sympy":
+        #    continue
         # if entry["repo"] != "astropy/astropy":
         #    continue
         # if entry["repo"] != "django/django":
