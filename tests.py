@@ -69,10 +69,16 @@ class TestDirective:
     ):
         self.file_path = file_path
         self.class_name = class_name
-        self.method_name = method_name
         self.module_based = module_based
         self.method_only = method_only
         self.docstring = docstring
+
+        # remove square brackets and their contents from method name:
+        # these are values from parametrized tests, but just the method
+        # name is enough for us
+        if method_name is not None:
+            method_name = re.sub(r"\[.*\]$", "", method_name)
+        self.method_name = method_name
 
     def __str__(self):
         if self.module_based:
@@ -141,7 +147,7 @@ class TestDirective:
     # parse a test directive from a string, infer the right format based on the string
     @staticmethod
     def parse(directive):
-        if re.match(r"^test_.*\([^)]*\)$", directive):
+        if re.match(r"^test_\w* \([^)]*\)$", directive):
             return TestDirective.parse_module_in_parens(directive)
         elif "::" in directive:
             return TestDirective.parse_pytest(directive)
