@@ -65,11 +65,13 @@ class TestDirective:
         class_name=None,
         module_based=False,
         docstring=None,
+        method_only=False,
     ):
         self.file_path = file_path
         self.class_name = class_name
         self.method_name = method_name
         self.module_based = module_based
+        self.method_only = method_only
         self.docstring = docstring
 
     def __str__(self):
@@ -86,7 +88,9 @@ class TestDirective:
             elif self.method_name is not None:
                 return f"{module_name}.{self.method_name}"
             else:
-                return f"{module_name}"
+                return module_name
+        elif self.method_only:
+            return self.method_name
         else:
             if self.class_name is not None:
                 if self.method_name is not None:
@@ -96,9 +100,9 @@ class TestDirective:
             elif self.method_name is not None:
                 return f"{self.file_path}::{self.method_name}"
             elif self.file_path is None and self.docstring is not None:
-                return f"{self.docstring}"
+                return self.docstring
             else:
-                return f"{self.file_path}"
+                return self.file_path
 
     def __repr__(self):
         return json.dumps(self.__dict__, indent=4)
@@ -141,6 +145,8 @@ class TestDirective:
             return TestDirective.parse_module_in_parens(directive)
         elif "::" in directive:
             return TestDirective.parse_pytest(directive)
+        elif re.match(r"^test_\w+$", directive):
+            return TestDirective(None, method_name=directive, method_only=True)
         else:
             return TestDirective(None, docstring=directive)
 
@@ -198,7 +204,7 @@ CUSTOM_MAP_REPO_TO_TEST_FRAMEWORK = {
     "sphinx-doc/sphinx": "tox -epy39 -v --",
     "sqlfluff/sqlfluff": TEST_PYTEST,
     "swe-bench/humaneval": "python",
-    "sympy/sympy": "bin/test -C --verbose",
+    "sympy/sympy": "bin/test -C",
 }
 
 
@@ -372,6 +378,7 @@ def diff_and_run_tests(entry, git_dname, use_test_patch=False, test_server_host=
         for td in json.loads(entry["PASS_TO_PASS"])
     ]
     module_based = entry["repo"] == "django/django"
+    method_only = entry["repo"] == "sympy/sympy"
     # print(f"Existing Test directives: {str(existing_test_directives)}")
     if use_test_patch:
         additional_test_directives: List[str] = [
@@ -383,7 +390,7 @@ def diff_and_run_tests(entry, git_dname, use_test_patch=False, test_server_host=
     else:
         newly_added_test_directives: List[TestDirective] = (
             extract_added_test_directives_from_patch(
-                model_patch, git_dname, module_based=module_based
+                model_patch, git_dname, module_based=module_based, method_only=method_only
             )
         )
         additional_test_directives: List[str] = [
@@ -392,21 +399,28 @@ def diff_and_run_tests(entry, git_dname, use_test_patch=False, test_server_host=
         parsed_potentially_existing: List[TestDirective] = [
             TestDirective.parse(td) for td in json.loads(entry["PASS_TO_PASS"])
         ]
+
         # then use the file path to extract the test directives from the file (first check if the file exists)
         existing_test_directives: List[str] = []
         parser = Parser(PY_LANGUAGE)
+
         # key: potential test directive, value: actual test directive that exists that can be backup
         backup_test_directives: Dict[str, TestDirective] = {}
+
+        # we don't know if these test directives actually exist in the repo, so
+        # we need to check before we count on that
         for pd in parsed_potentially_existing:
             if pd.file_path is None:
-                if pd.docstring is None:
-                    print(f"Bad test directive missing filepath and docstring: {pd}")
-                    # exit(1)
-                    continue
-                # this is a docstring test directive, we can't check if it exists
+                # this is a docstring test directive OR a test directive that excludes file path, we can't check if it exists
                 # but we'll search for the file that contains this using the ripgrep command
-                escaped_docstring = pd.docstring.replace('"', '\\"')
-                command = f"""rg -l -tpy -F "{escaped_docstring}" {git_dname}"""
+                if pd.docstring is not None:
+                    search_term = pd.docstring.replace('"', '\\"')
+                elif pd.method_only:
+                    search_term = pd.method_name
+                else:
+                    print(f"Bad test directive missing filepath, method name and docstring: {pd}")
+                    continue
+                command = f"""rg -l -tpy -F "{search_term}" {git_dname}"""
                 paths = subprocess.run(
                     command, shell=True, capture_output=True, text=True
                 ).stdout
@@ -426,15 +440,23 @@ def diff_and_run_tests(entry, git_dname, use_test_patch=False, test_server_host=
                         )
                         for ftd in file_test_directives:
                             ftd.module_based = module_based
-                            if ftd.docstring is None:
-                                continue
-                            # compare ignoring all whitespace
-                            if " ".join(pd.docstring.split()) == " ".join(
-                                ftd.docstring.split()
-                            ):
-                                existing_test_directives.append(str(ftd))
-                                found = True
-                                break
+                            ftd.method_only = method_only
+                            if ftd.module_based:
+                                if ftd.docstring is None:
+                                    continue
+                                # compare ignoring all whitespace
+                                if " ".join(pd.docstring.split()) == " ".join(
+                                    ftd.docstring.split()
+                                ):
+                                    existing_test_directives.append(str(ftd))
+                                    found = True
+                                    break
+                            else:
+                                # method_only is True, so we only need to check the method name
+                                if pd.method_name == ftd.method_name:
+                                    existing_test_directives.append(str(ftd))
+                                    found = True
+                                    break
                 if not found:
                     # print(f"Skipping not actually existing test directive 0: {pd}")
                     continue
@@ -497,6 +519,8 @@ def diff_and_run_tests(entry, git_dname, use_test_patch=False, test_server_host=
             # print(f"Not using backup test directives: {backup_test_directives}")
             existing_test_directives = existing_test_directives
     test_directives = existing_test_directives + additional_test_directives
+    # print(f"Existing test directives: { existing_test_directives }")
+    # print(f"Additional test directives: { additional_test_directives }")
     # print(f"Test directives: {test_directives}")
     passed, output = run_tests(
         entry,
@@ -530,7 +554,7 @@ def diff_and_run_tests(entry, git_dname, use_test_patch=False, test_server_host=
     return passed, output
 
 
-def extract_added_test_directives_from_patch(git_patch, git_dname, module_based):
+def extract_added_test_directives_from_patch(git_patch, git_dname, module_based, method_only):
     """Given a `git_patch`, extract the test directives for any new tests
     that have been added to the repo since the `base_commit`.
     """
@@ -551,6 +575,7 @@ def extract_added_test_directives_from_patch(git_patch, git_dname, module_based)
                 )
                 for ftd in file_test_directives:
                     ftd.module_based = module_based
+                    ftd.method_only = method_only
                 test_directives.extend([str(ftd) for ftd in file_test_directives])
     return test_directives
 
