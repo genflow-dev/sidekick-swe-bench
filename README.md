@@ -24,6 +24,29 @@ git clone https://github.com/aorwall/SWE-bench-docker
 pdm install
 ```
 
+
+# Using pip for pdm installation on an AWS server within a virtual environment:
+```
+# Update the Package List and vertual env (skip if you already did this as part of docker installation):
+sudo apt update
+sudo apt install python3-venv
+
+# Create virtual env in your project directory:
+python3 -m venv venv
+
+# Activate the virtual env:
+source venv/bin/activate
+
+# Install PDM in virtual env:
+pip install pdm
+
+# Verify the install:
+pdm --version
+
+# Get out of virtual env:
+deactivate
+```
+
 See the
 [SWE Bench Docker docs](https://github.com/aorwall/SWE-bench-docker)
 to ensure you have built or pulled all the SWE Bench testbed
