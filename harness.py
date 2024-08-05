@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+from collections import defaultdict
 import json
 import subprocess
 import sys
@@ -20,7 +21,8 @@ from utils import (
     pick_winner,
 )
 
-TEST_SERVER_HOST = "10.0.0.135:9386"
+#TEST_SERVER_HOST = "10.0.0.135:9386"
+TEST_SERVER_HOST = "54.67.83.30:9385"
 REPOS_DNAME = Path("repos")
 CHAT_LOGS_DNAME = Path("chat-logs")
 PREDS_DNAME = Path("predictions")
@@ -395,7 +397,7 @@ def main():
     #     dataset = dict((inst, entry) for inst, entry in dataset.items() if inst in devin_insts)
 
     # How many threads to use for attempting instances in parallel
-    threads = 1
+    threads = 3
 
     # Any predictions/ dirs provided on the command line are treated
     # as earlier, higher priority runs.  If a plausible solution was
@@ -470,7 +472,6 @@ def process_instances(
     chat_history_dname = CHAT_LOGS_DNAME / models_slug
     chat_history_dname.mkdir(exist_ok=True, parents=True)
 
-    threads = 1
     if threads > 1:
         process_one_instance_lox = lox.thread(threads)(process_one_instance)
         process_one_instance_func = process_one_instance_lox.scatter
@@ -479,7 +480,7 @@ def process_instances(
         process_one_instance_func = process_one_instance
 
     count = 0
-    seen_repos = set()
+    seen_repos = defaultdict(int)
     for instance_id in sorted(remaining_instances):
         entry = dataset[instance_id]
 
@@ -489,9 +490,14 @@ def process_instances(
         #    continue
         #if instance_id != "mwaskom__seaborn-3407":
         #    continue
-        if entry["repo"] in seen_repos:
+        if seen_repos[entry["repo"]] >= 5:
             continue
-        seen_repos.add(entry["repo"])
+        seen_repos[entry["repo"]] += 1
+        # WIP fixing sympy tests
+        if entry["repo"] == "sympy/sympy":
+            continue
+        #if entry["repo"] != "astropy/astropy":
+        #    continue
         #if entry["repo"] != "django/django":
         #    continue
         #count += 1
