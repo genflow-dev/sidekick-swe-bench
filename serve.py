@@ -14,6 +14,7 @@ class SimpleHandler(BaseHTTPRequestHandler):
 
             # Parse JSON data if needed
             data = json.loads(post_data.decode('utf-8'))
+            print(f'Received data: {data}')
             entry = data.get('entry')
             model_patch = data.get('model_patch')
             use_test_patch = data.get('use_test_patch')
