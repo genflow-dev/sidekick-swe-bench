@@ -314,7 +314,7 @@ def run_tests(
     # log_dir = tempfile.TemporaryDirectory(dir="/tmp").name
     current_dir = Path(__file__).parent
     log_dir = f"{current_dir}/logs"
-    timeout = 300  # TODO check how long the longest tests take
+    timeout = 600  # TODO check how long the longest tests take
     log_suffix = ""
     asyncio.run(
         run_docker_evaluation(entry_instance, namespace, log_dir, timeout, log_suffix)
