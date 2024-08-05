@@ -146,7 +146,7 @@ command = "python -m compileall {file}"
 command = "ruff check --preview --select E101,E112,E113,E114,E115,E116,E117,E9,F821,F823,F406,F407,F701,F702,F704,F706,F722 {file}"
 
 [[autofix_commands]]
-command = "ruff check --fix-only {file}"
+command = "ruff check --ignore F401 --fix-only {file}"
     """
     genflow_coding_toml_path = Path(git_tempdir) / "genflow.coding.toml"
     genflow_coding_toml_path.write_text(sidekick_config)
