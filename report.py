@@ -36,7 +36,9 @@ python {base}/SWE-bench-docker/run_evaluation.py
     --predictions_path {predictions_jsonl}
     --num_processes 5
 """
-    run_evals_cmd = " ".join([line.strip() for line in run_evals_cmd.split() if line.strip()])
+    run_evals_cmd = " ".join(
+        [line.strip() for line in run_evals_cmd.split() if line.strip()]
+    )
     dump(run_evals_cmd)
 
     subprocess.run(run_evals_cmd.split(), check=True)
@@ -66,7 +68,9 @@ def get_report(swe_bench_tasks, log_dir, predictions_jsonl, model_name_or_path):
     applied = set(report["applied"])
     generated_minus_applied = generated - applied
     dump(len(generated_minus_applied))
-    generated_minus_applied = " ".join(iid + "*" for iid in sorted(generated_minus_applied))
+    generated_minus_applied = " ".join(
+        iid + "*" for iid in sorted(generated_minus_applied)
+    )
     dump(generated_minus_applied)
 
     with_logs = set(report["with_logs"])
@@ -137,7 +141,9 @@ def run_evals_on_dname(dname):
         run_evals(FULL_DATASET_FNAME, str(log_dir), predictions_jsonl)
 
         model_name_or_path = list(predictions.values())[0]["model_name_or_path"]
-        report = get_report(FULL_DATASET_FNAME, log_dir, predictions_jsonl, model_name_or_path)
+        report = get_report(
+            FULL_DATASET_FNAME, log_dir, predictions_jsonl, model_name_or_path
+        )
         predictions = update_pred_json(predictions, report)
 
     return predictions_jsonl, log_dir
@@ -205,7 +211,9 @@ def main():
     dump(len(predictions))
 
     predictions_jsonl, log_dir = combine_jsonl_logs(predictions, model_name_or_path)
-    report = get_report(FULL_DATASET_FNAME, log_dir, predictions_jsonl, model_name_or_path)
+    report = get_report(
+        FULL_DATASET_FNAME, log_dir, predictions_jsonl, model_name_or_path
+    )
     results_json = Path("predictions") / model_name_or_path / "results.json"
     results_json.write_text(json.dumps(report, indent=4))
 
@@ -289,11 +297,10 @@ def main():
         added_gold = (added_files.intersection(gold_files) == gold_files) and gold_files
 
         plausible = (
-            data["model_patch"]
-            and True
-            #and data["edit_outcome"]
-            #and data["lint_outcome"]
-            #and data["test_outcome"]
+            data["model_patch"] and True
+            # and data["edit_outcome"]
+            # and data["lint_outcome"]
+            # and data["test_outcome"]
         )
         if plausible:
             total_plausible += 1
@@ -328,7 +335,9 @@ def main():
         else:
             repomap_timeline += "_"
 
-    pct_maps_with_gold_file = len(repomap_timeline.replace("_", "")) / len(repomap_timeline) * 100
+    pct_maps_with_gold_file = (
+        len(repomap_timeline.replace("_", "")) / len(repomap_timeline) * 100
+    )
     dump(pct_maps_with_gold_file)
 
     dump(total_with_gold_attr)

@@ -21,11 +21,12 @@ from utils import (
     pick_winner,
 )
 
-#TEST_SERVER_HOST = "10.0.0.135:9386"
+# TEST_SERVER_HOST = "10.0.0.135:9386"
 TEST_SERVER_HOST = "54.67.83.30:9385"
 REPOS_DNAME = Path("repos")
 CHAT_LOGS_DNAME = Path("chat-logs")
 PREDS_DNAME = Path("predictions")
+
 
 def diff_versus_commit(git_dname, commit):
     """
@@ -110,10 +111,11 @@ def show_problems(dataset):
         problem = entry["problem_statement"].splitlines()[0]
         print(f"{inst}: {problem}")
 
+
 def configure_sidekick(git_tempdir, entry, test_server_host=""):
     """
     configure sidekick via genflow.coding.toml file + .genflowignore file + setup run_dev_tests.sh script
-    then commit that stuff too. 
+    then commit that stuff too.
     """
 
     # Create run_dev_tests.sh file
@@ -164,12 +166,17 @@ genflow.coding.toml
     genflowignore_path.write_text(genflowignore)
 
     # Commit the genflow.coding.toml, .genflowignore and run_dev_tests.sh files
-    commit_cmd = f"git -C {git_tempdir} add genflow.coding.toml .genflowignore run_dev_tests.sh"
+    commit_cmd = (
+        f"git -C {git_tempdir} add genflow.coding.toml .genflowignore run_dev_tests.sh"
+    )
     subprocess.run(commit_cmd.split(), check=True)
     commit_cmd = f"git -C {git_tempdir} commit -m 'configure_sidekick'"
     subprocess.run(commit_cmd.split(), check=True)
 
-def process_one_instance(entry, num_tries, models, temperature, model_name_or_path, out_dname):
+
+def process_one_instance(
+    entry, num_tries, models, temperature, model_name_or_path, out_dname
+):
     """Process one `entry` from SWE Bench using the LLM `models` at the
     given `temperature`.  Set `model_name_or_path` in the result json.
     Store the result json and the chat log into `out_dname`.
@@ -224,14 +231,19 @@ def process_one_instance(entry, num_tries, models, temperature, model_name_or_pa
             if workspace.name == instance_id:
                 # mark any existing tasks that are "to_do", "in_progress" or
                 # "blocked" in the instance-specific workspace as failed
-                existing_tasks = client.get_tasks(workspace.id, statuses="to_do,in_progress,blocked")
+                existing_tasks = client.get_tasks(
+                    workspace.id, statuses="to_do,in_progress,blocked"
+                )
                 for task in existing_tasks:
-                    workspace.update_task(task.id, TaskRequest(
-                        description=task.description,
-                        flow_type=task.flow_type,
-                        agent_type="none",
-                        status="failed",
-                    ))
+                    workspace.update_task(
+                        task.id,
+                        TaskRequest(
+                            description=task.description,
+                            flow_type=task.flow_type,
+                            agent_type="none",
+                            status="failed",
+                        ),
+                    )
 
             planning_prompt = """
 Follow this exact plan template, with steps in this exact order:
@@ -244,8 +256,9 @@ Fill in the template with details that are more specific, including replacing
 identified clear steps involving editing code. The order here is important - we
 want to repro the issue with a test before fixing the issue, following TDD
 red-green methodology."""
-            task = workspace.create_task(TaskRequest(
-                description=f"""
+            task = workspace.create_task(
+                TaskRequest(
+                    description=f"""
 A user has reported the following bug/issue in the {entry["repo"]} project,
 which you are tasked with reproducing and then resolving.
 
@@ -259,9 +272,13 @@ doc strings as part of your solution, only edit the actual code and tests.
 The bug/issue report follows:
 
 {problem_statement}""",
-                flow_type=FlowType.PLANNED_DEV,
-                flow_options={"planningPrompt": planning_prompt, "reproduceIssue": True},
-            ))
+                    flow_type=FlowType.PLANNED_DEV,
+                    flow_options={
+                        "planningPrompt": planning_prompt,
+                        "reproduceIssue": True,
+                    },
+                )
+            )
 
             # Wait for the task to be completed by polling the Sidekick API
             sleep_interval = 5  # seconds
@@ -288,7 +305,9 @@ The bug/issue report follows:
             # Note: we actually use the next commit after the base_commit as the basis for the diff,
             # because the test harness makes an extra git commit before sidekick starts
             command = f"""git -C {git_tempdir} rev-list --topo-order {base_commit}.."$*" | tail -1"""
-            next_commit = subprocess.run(command, shell=True, capture_output=True, text=True).stdout
+            next_commit = subprocess.run(
+                command, shell=True, capture_output=True, text=True
+            ).stdout
             model_patch = diff_versus_commit(git_tempdir, next_commit)
             dump(model_patch)
 
@@ -300,15 +319,15 @@ The bug/issue report follows:
                 model_patch=model_patch,
                 # For computing stats
                 task_status=task.status,
-                #model=model,
-                #temperature=temperature,
-                #cost=coder.total_cost,
-                #added_files=added_files,
-                #gold_files=gold_files,
-                #edited_files=files_in_patch(model_patch),
-                #edit_outcome=coder.edit_outcome,
-                #lint_outcome=coder.lint_outcome,
-                #test_outcome=coder.test_outcome,
+                # model=model,
+                # temperature=temperature,
+                # cost=coder.total_cost,
+                # added_files=added_files,
+                # gold_files=gold_files,
+                # edited_files=files_in_patch(model_patch),
+                # edit_outcome=coder.edit_outcome,
+                # lint_outcome=coder.lint_outcome,
+                # test_outcome=coder.test_outcome,
             )
             result["try"] = attempt  # `try` is a python keyword
             results.append(result)
@@ -316,7 +335,9 @@ The bug/issue report follows:
             dump(result)
 
             # Did we get a successful edit, lint and test? If so, we found a plausible solution!
-            if model_patch: # and coder.edit_outcome and coder.lint_outcome and coder.test_outcome:
+            if (
+                model_patch
+            ):  # and coder.edit_outcome and coder.lint_outcome and coder.test_outcome:
                 winner = result
                 break
 
@@ -358,8 +379,11 @@ The bug/issue report follows:
     out_fname.write_text(json.dumps(winner, indent=4))
     if timeoutCount >= 5:
         # TODO remove early exit for final harness run
-        print(f"Task timed out at least 5 times, latest being {instance_id}, exiting early to investigate")
+        print(
+            f"Task timed out at least 5 times, latest being {instance_id}, exiting early to investigate"
+        )
         exit(1)
+
 
 def main():
     #
@@ -406,12 +430,26 @@ def main():
     prior_dnames = sys.argv[1:]
 
     process_instances(
-        prefix, dataset, models, num_tries, temperature, threads, prior_dnames, just_devin_570
+        prefix,
+        dataset,
+        models,
+        num_tries,
+        temperature,
+        threads,
+        prior_dnames,
+        just_devin_570,
     )
 
 
 def process_instances(
-    prefix, dataset, models, num_tries, temperature, threads, prior_dnames, just_devin_570
+    prefix,
+    dataset,
+    models,
+    num_tries,
+    temperature,
+    threads,
+    prior_dnames,
+    just_devin_570,
 ):
     """
     prefix - Prefix used in front of the dirname in predictions/.
@@ -460,7 +498,7 @@ def process_instances(
     remaining_instances -= plausible_instances
 
     remaining_instances = list(remaining_instances)
-    #random.shuffle(remaining_instances)
+    # random.shuffle(remaining_instances)
 
     dump(len(remaining_instances))
     dump(sorted(remaining_instances))
@@ -486,9 +524,9 @@ def process_instances(
 
         # Only process instances from the mwaskom/seaborn repo for now
         # FIXME revert later on after testing seaborn is complete
-        #if entry["repo"] != "mwaskom/seaborn":
+        # if entry["repo"] != "mwaskom/seaborn":
         #    continue
-        #if instance_id != "mwaskom__seaborn-3407":
+        # if instance_id != "mwaskom__seaborn-3407":
         #    continue
         if seen_repos[entry["repo"]] >= 5:
             continue
@@ -496,12 +534,12 @@ def process_instances(
         # WIP fixing sympy tests
         if entry["repo"] == "sympy/sympy":
             continue
-        #if entry["repo"] != "astropy/astropy":
+        # if entry["repo"] != "astropy/astropy":
         #    continue
-        #if entry["repo"] != "django/django":
+        # if entry["repo"] != "django/django":
         #    continue
-        #count += 1
-        #if count >= 5:
+        # count += 1
+        # if count >= 5:
         #    continue
 
         process_one_instance_func(

@@ -145,7 +145,9 @@ def get_devin_instance_ids():
 
 def filter_preds_by_devin(predictions):
     devin_insts = get_devin_instance_ids()
-    predictions = dict((inst, pred) for (inst, pred) in predictions.items() if inst in devin_insts)
+    predictions = dict(
+        (inst, pred) for (inst, pred) in predictions.items() if inst in devin_insts
+    )
     return predictions
 
 
@@ -181,7 +183,9 @@ def choose_pred(inst, all_preds, dnames):
     return pick_winner(results)
 
 
-def choose_predictions(dnames, model_name_or_path=None, copy_md=False, devin_only=False):
+def choose_predictions(
+    dnames, model_name_or_path=None, copy_md=False, devin_only=False
+):
     all_preds = [load_predictions([dname], devin_only=devin_only) for dname in dnames]
     all_instances = set()
     for preds in all_preds:
